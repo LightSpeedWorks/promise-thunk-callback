@@ -1,0 +1,8 @@
+{
+  "name": "promise-thunk-callback",
+  "description": "Promise Thunk callback",
+  "version": "1.0.0",
+  "main": "promise-thunk-callback.js",
+  "author": "LightSpeedC",
+  "license": "MIT"
+}

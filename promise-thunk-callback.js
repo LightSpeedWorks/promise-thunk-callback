@@ -13,38 +13,30 @@
 		function setup(res, rej) { resolve = res; reject = rej; }
 
 		function thunk(cb) {
-			if (typeof cb === 'function')
-				cbs.push(cb);
-			if (results !== undefined)
-				callback.apply(ctx, results);
+			if (typeof cb === 'function') cbs.push(cb);
+			results && callback.apply(ctx, results);
 		}
 
 		thunk.then = function then(res, rej) {
-			if (promise === undefined)
-				promise = new Promise(setup);
-			if (results !== undefined)
-				callback.apply(ctx, results);
+			promise || (promise = new Promise(setup));
+			results && callback.apply(ctx, results);
 			return promise.then(res, rej);
 		};
 
 		thunk['catch'] = function caught(rej) {
-			if (promise === undefined)
-				promise = new Promise(setup);
-			if (results !== undefined)
-				callback.apply(ctx, results);
+			promise || (promise = new Promise(setup));
+			results && callback.apply(ctx, results);
 			return promise['catch'](rej)
 		};
 
 		function callback(err, val) {
-			if (results === undefined)
-				ctx = this, results = arguments;
+			results || (ctx = this, results = arguments);
 
-			cbs.forEach(function (cb) { cb.apply(ctx, results); });
-			cbs = [];
+			var cb;
+			while (cb = cbs.shift()) cb.apply(ctx, results);
 
-			if (pending && promise !== undefined) {
-				if (results[0]) reject(results[0]);
-				else resolve(results[1]);
+			if (pending && promise) {
+				results[0] ? reject(results[0]) : resolve(results[1]);
 				pending = false;
 			}
 		}

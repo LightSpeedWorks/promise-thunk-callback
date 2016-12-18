@@ -11,34 +11,34 @@ function sleep(msec, val, cb) {
 
 // with Callback
 sleep(100, 'Sleep with Callback',
-	function (err, val) { console.log(err, val); });
+	function (err, val) { console.log(err + '', val); });
 
 // as a Promise
 sleep(200, 'Sleep as a Promise')
 	.then(function (val) { console.log(val); },
-		function (err) { console.error(err); });
+		function (err) { console.error(err + ''); });
 sleep(300, 'Sleep as a Promise')
 	.then(function (val) { console.log(val); })
-	.catch(function (err) { console.error(err); });
+	.catch(function (err) { console.error(err + ''); });
 
 // as a Thunk
 sleep(400, 'Sleep as a Thunk')
-	(function (err, val) { console.log(err, val); });
+	(function (err, val) { console.log(err + '', val); });
 
 sleep(-100, '-Sleep with Callback',
-	function (err, val) { console.log(err, val); });
+	function (err, val) { console.log(err + '', val); });
 
 // as a Promise
 sleep(-200, '-Sleep as a Promise')
 	.then(function (val) { console.log(val); },
-		function (err) { console.error(err); });
+		function (err) { console.error(err + ''); });
 sleep(-300, '-Sleep as a Promise')
 	.then(function (val) { console.log(val); })
-	.catch(function (err) { console.error(err); });
+	.catch(function (err) { console.error(err + ''); });
 
 // as a Thunk
 sleep(-400, '-Sleep as a Thunk')
-	(function (err, val) { console.log(err, val); });
+	(function (err, val) { console.log(err + '', val); });
 
 //const aa = require('aa');
 const aa = gen => function cb(err, val) {
@@ -51,6 +51,6 @@ aa(function *() {
 	try {
 		const val = yield sleep(-100, '-Sleep with Generators');
 	} catch (err) {
-		console.error(err);
+		console.error(err + '');
 	}
 } ());

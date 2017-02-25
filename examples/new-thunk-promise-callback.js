@@ -106,37 +106,37 @@ function SLEEP(msec, val, cb) {
 }
 
 function delay(msec, val, cb) {
-	return thunkPromiseCallback(cb, function (cb) {
+	return thunkPromiseCallback(function (cb) {
 		if (msec < 0) setTimeout(cb, 0, new Error('msec must be plus or zero'));
 		else setTimeout(cb, msec, null, val);
-	});
+	}, cb);
 }
 
 function wait(msec, val, cb) {
-	cb = callbackThunkPromise(cb, function (cb) {
+	cb = callbackThunkPromise(function (cb) {
 		if (msec < 0) setTimeout(cb, 0, new Error('msec must be plus or zero'));
 		else setTimeout(cb, msec, null, val);
-	});
+	}, cb);
 	return cb.thunk;
 }
 
 function Wait(msec, val, cb) {
 	// waitと同じ
-	cb = callbackThunkPromise(cb, function (cb) {
+	cb = callbackThunkPromise(function (cb) {
 		if (msec < 0) setTimeout(cb, 0, new Error('msec must be plus or zero'));
 		else setTimeout(cb, msec, null, val);
-	});
+	}, cb);
 	return cb.thunk;
 }
 
 function WAIT(msec, val, cb) {
-	return UnifiedCallbackThunkPromise(cb, function (cb) {
+	return UnifiedCallbackThunkPromise(function (cb) {
 		if (msec < 0) setTimeout(cb, 0, new Error('msec must be plus or zero'));
 		else setTimeout(cb, msec, null, val);
-	});
+	}, cb);
 }
 
-function thunkPromiseCallback(cb, setup) {
+function thunkPromiseCallback(setup, cb) {
 	var callbackList = typeof cb === 'function' ? [cb] : [];
 	function callback(err, val) {
 		var vals = callbackList.map(function (f) { return f(err, val); });
@@ -161,7 +161,7 @@ function thunkPromiseCallback(cb, setup) {
 	return thunk;
 }
 
-function callbackThunkPromise(cb, setup) {
+function callbackThunkPromise(setup, cb) {
 	var callbackList = typeof cb === 'function' ? [cb] : [];
 	function callback(err, val) {
 		var vals = callbackList.map(function (f) { return f(err, val); });
@@ -187,7 +187,7 @@ function callbackThunkPromise(cb, setup) {
 	return callback;
 }
 
-function UnifiedCallbackThunkPromise(cb, setup) {
+function UnifiedCallbackThunkPromise(setup, cb) {
 	var callbackList = callback.list = typeof cb === 'function' ? [cb] : [];
 	function callback(err, val) {
 		if (typeof err === 'function') {

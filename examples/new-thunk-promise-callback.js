@@ -4,6 +4,7 @@
 // generator = .next/.throw : {done: boolean, value: any}
 // stream = .on(end|error|data)/.emit/.end : stream
 
+//================================================================================
 sleep(1000, 'sa_1000',
    (err, val) => (console.log('sa1 ' + val + ' ' + err), 'sa1x   '));
 sleep(2000, 'sb_2000')
@@ -57,7 +58,54 @@ Wait(3300, 'Wc_3300')
 .then(val => (console.log('Wc2 ' + val), 'Wc2x   '),
       err => (console.log('Wc2 ' + err), 'Wc2e   '));
 
+//================================================================================
+aa(function *() {
+	console.log('aa start');
+	yield cb => setTimeout(cb, 4000);
+	console.log('aa sleep:', yield sleep(200, 'aa sleep'));
+	console.log('aa Sleep:', yield Sleep(200, 'aa Sleep'));
+	console.log('aa delay:', yield delay(200, 'aa delay'));
+	console.log('aa wait :', yield wait(200, 'aa wait'));
+	console.log('aa Wait :', yield Wait(200, 'aa Wait'));
+	console.log('aa cb => sleep:', yield cb => sleep(200, 'aa sleep', cb));
+	console.log('aa cb => Sleep:', yield cb => Sleep(200, 'aa Sleep', cb));
+	console.log('aa cb => delay:', yield cb => delay(200, 'aa delay', cb));
+	console.log('aa cb => wait :', yield cb => wait(200, 'aa wait', cb));
+	console.log('aa cb => Wait :', yield cb => Wait(200, 'aa Wait', cb));
+	console.log('aa sleep.then:', yield sleep(200, 'aa sleep').then(v => v).then(v => v));
+	console.log('aa Sleep.then:', yield Sleep(200, 'aa Sleep').then(v => v).then(v => v));
+	console.log('aa delay.then:', yield delay(200, 'aa delay').then(v => v).then(v => v));
+	console.log('aa wait.then :', yield wait(200, 'aa wait').then(v => v).then(v => v));
+	console.log('aa Wait.then :', yield Wait(200, 'aa Wait').then(v => v).then(v => v));
+	console.log('aa sleep()():', yield sleep(200, 'aa sleep')(vv));
+	console.log('aa Sleep()():', yield Sleep(200, 'aa Sleep')(vv));
+	console.log('aa delay()():', yield delay(200, 'aa delay')(vv)(vv)(vv));
+	console.log('aa wait()() :', yield wait(200, 'aa wait')(vv)(vv)(vv));
+	console.log('aa Wait()() :', yield Wait(200, 'aa Wait')(vv)(vv)(vv));
+	console.log('aa []:', yield [Wait(200, '200'), Wait(100, '100'), Wait(300, '300')]);
+	console.log('aa {}:', yield {x:Wait(200, '200'), y:Wait(100, '100'), z:Wait(300, '300')});
 
+	var chan = Channel();
+	chan(10);
+	chan(20);
+	chan(30);
+	chan(40);
+	setTimeout(chan, 100, 50);
+	setTimeout(chan, 200, null);
+	//chan(null);
+	var val;
+	while (val = yield chan) {
+		console.log('aa2', val);
+	}
+	console.log('aa2 end', val);
+
+	return 'aa end';
+	function vv(err, val) { return val; }
+})
+.then(val => console.log('aa end: ' + val),
+      err => console.log('aa err: ' + err));
+
+//================================================================================
 function sleep(msec, val, cb) {
 	var list = typeof cb === 'function' ? [cb] : [];
 	function thunk(cb) {
@@ -113,6 +161,7 @@ function Wait(msec, val, cb) {
 	}, cb);
 }
 
+//================================================================================
 function thunkPromiseCallback(setup, cb) {
 	var list = typeof cb === 'function' ? [cb] : [];
 	function callback(err, val) {
@@ -166,6 +215,7 @@ function callbackThunkPromise(setup, cb) {
 	return callback;
 }
 
+//================================================================================
 function Thunk(setup, cb) {
 	var list = typeof cb === 'function' ? [cb] : [];
 	function callback(first, val) {
@@ -200,6 +250,7 @@ function then(resolved, rejected) {
 	}))).then(resolved, rejected);
 }
 
+//================================================================================
 function aa(gtor, cb) {
 	if (typeof gtor === 'function') gtor = gtor();
 	if (!gtor || typeof gtor.next !== 'function')
@@ -218,37 +269,6 @@ function aa(gtor, cb) {
 		} ();
 	}, cb);
 }
-
-aa(function *() {
-	console.log('aa start');
-	yield cb => setTimeout(cb, 4000);
-	console.log('aa sleep:', yield sleep(200, 'aa sleep'));
-	console.log('aa Sleep:', yield Sleep(200, 'aa Sleep'));
-	console.log('aa delay:', yield delay(200, 'aa delay'));
-	console.log('aa wait :', yield wait(200, 'aa wait'));
-	console.log('aa Wait :', yield Wait(200, 'aa Wait'));
-	console.log('aa cb => sleep:', yield cb => sleep(200, 'aa sleep', cb));
-	console.log('aa cb => Sleep:', yield cb => Sleep(200, 'aa Sleep', cb));
-	console.log('aa cb => delay:', yield cb => delay(200, 'aa delay', cb));
-	console.log('aa cb => wait :', yield cb => wait(200, 'aa wait', cb));
-	console.log('aa cb => Wait :', yield cb => Wait(200, 'aa Wait', cb));
-	console.log('aa sleep.then:', yield sleep(200, 'aa sleep').then(v => v).then(v => v));
-	console.log('aa Sleep.then:', yield Sleep(200, 'aa Sleep').then(v => v).then(v => v));
-	console.log('aa delay.then:', yield delay(200, 'aa delay').then(v => v).then(v => v));
-	console.log('aa wait.then :', yield wait(200, 'aa wait').then(v => v).then(v => v));
-	console.log('aa Wait.then :', yield Wait(200, 'aa Wait').then(v => v).then(v => v));
-	console.log('aa sleep()():', yield sleep(200, 'aa sleep')(vv));
-	console.log('aa Sleep()():', yield Sleep(200, 'aa Sleep')(vv));
-	console.log('aa delay()():', yield delay(200, 'aa delay')(vv)(vv)(vv));
-	console.log('aa wait()() :', yield wait(200, 'aa wait')(vv)(vv)(vv));
-	console.log('aa Wait()() :', yield Wait(200, 'aa Wait')(vv)(vv)(vv));
-	console.log('aa []:', yield [Wait(200, '200'), Wait(100, '100'), Wait(300, '300')]);
-	console.log('aa {}:', yield {x:Wait(200, '200'), y:Wait(100, '100'), z:Wait(300, '300')});
-	return 'aa end';
-	function vv(err, val) { return val; }
-})
-.then(val => console.log('aa end: ' + val),
-      err => console.log('aa err: ' + err));
 
 function valcb(val, cb) {
 	return !val ? cb(null, val) :
@@ -284,4 +304,23 @@ function objcb(obj, cb) {
 			if (--n === 0) cb(null, res);
 		});
 	});
+}
+
+//================================================================================
+function Channel() {
+	var recvs = [], sends = [];
+	return channel;
+
+	function channel(first, val) {
+		var args = arguments;
+		if (typeof first === 'function')
+			recvs.push(first);
+		else {
+			if (arguments.length === 1 && !(first instanceof Error))
+				args = [null, first];
+			sends.push(args);
+		}
+		while (sends.length > 0 && recvs.length > 0)
+			recvs.shift().apply(null, sends.shift());
+	}
 }

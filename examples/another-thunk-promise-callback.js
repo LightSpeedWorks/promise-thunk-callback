@@ -16,8 +16,10 @@ function Thunk0(setup) {
 
 	function cb(err, val) {
 		if (args) return args[0] ?
-			err ? console.log('rejected twice:', err, args[0]) : console.log('resolved after rejected:', val, args[0]) :
-			err ? console.log('rejected after resolved:', err, args[1]) : console.log('resolved twice:', val, args[1]);
+			err ? console.log('rejected twice:', err, args[0]) :
+				console.log('resolved after rejected:', val, args[0]) :
+			err ? console.log('rejected after resolved:', err, args[1]) :
+				console.log('resolved twice:', val, args[1]);
 		args = arguments;
 		list.length && fire();
 	} // cb
@@ -29,7 +31,8 @@ function Thunk0(setup) {
 			try {
 				var r = cb.apply(null, args);
 				if (typeof r === 'function') r(next);
-				else if (r && r.then) r.then(function (v) { next(null, v); }, next);
+				else if (r && r.then) r.then(
+					function (v) { next(null, v); }, next);
 				else if (r instanceof Error) next(r);
 				else next(null, r);
 			} catch (e) { next(e); }
@@ -63,7 +66,8 @@ function Thunk1(setup) {
 			while (callback = list.shift()) {
 				var r = callback.apply(null, args);
 				if (typeof r === 'function') r(next);
-				else if (r && r.then) r.then(function (v) { next(null, v); }, next);
+				else if (r && r.then) r.then(
+					function (v) { next(null, v); }, next);
 				else if (r instanceof Error) next(r);
 				else next(null, r);
 			}
@@ -144,8 +148,8 @@ function caught(rejected) {
 
 function then(resolved, rejected) {
 	var thunk = this;
-	return (this.promise || (this.promise = new Promise(function (resolve, reject) {
-		thunk(function (err, val) { return err ? reject(err) : resolve(val); });
+	return (this.promise || (this.promise = new Promise(function (res, rej) {
+		thunk(function (err, val) { return err ? rej(err) : res(val); });
 	}))).then(resolved, rejected);
 }
 

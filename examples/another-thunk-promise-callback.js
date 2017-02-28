@@ -8,6 +8,12 @@ function Thunk0(setup) {
 	try{ setup(cb); } catch (e) { cb(e); }
 	return thunk;
 
+	function thunk(cb) {
+		list.push(cb);
+		args && fire();
+		return Thunk0(function (next) { cb.next = next; });
+	} // thunk
+
 	function cb(err, val) {
 		if (args) return args[0] ?
 			err ? console.log('rejected twice:', err, args[0]) : console.log('resolved after rejected:', val, args[0]) :
@@ -15,12 +21,6 @@ function Thunk0(setup) {
 		args = arguments;
 		list.length && fire();
 	} // cb
-
-	function thunk(cb) {
-		list.push(cb);
-		args && fire();
-		return Thunk0(function (next) { cb.next = next; });
-	} // thunk
 
 	function fire() {
 		var cb;
@@ -75,7 +75,7 @@ function Thunk1(setup) {
 function Thunk(setup, cb) {
 	var list = typeof cb === 'function' ? [cb] : [];
 	var args = null, initialized = false;
-	var next = null, result = undefined;
+	var next = null, result = undefined, noResult = true;
 
 	callback.promise = null;
 	callback.then = then;
@@ -87,6 +87,7 @@ function Thunk(setup, cb) {
 		setup(callback, callback); // throws
 		return;
 	}
+
 	return callback;
 
 	function callback(first, val) {
@@ -102,9 +103,7 @@ function Thunk(setup, cb) {
 				next = Thunk();
 				list.push(function (err, val) {
 					var args = normalizeArgs(arguments);
-					try {
-						var r = first.apply(null, args);
-						return valcb(r, next); }
+					try { return valcb(first.apply(null, args), next); }
 					catch (err) { return next(err); }
 				});
 			}
@@ -115,16 +114,16 @@ function Thunk(setup, cb) {
 		// callback
 		if (!args) args = normalizeArgs(arguments);
 		return fire();
-		// return list.map(function (f) { return f.apply(null, args); })[0];
-	}
+	} // callback
+
 	function fire() {
 		var cb = null;
 		while (cb = list.shift()) {
 			var r = cb.apply(null, args);
-			if (!result) result = r;
+			if (noResult) result = r, noResult = false;
 		}
 		return result;
-	}
+	} // fire
 }
 
 var slice = [].slice;
@@ -150,6 +149,62 @@ function then(resolved, rejected) {
 	}))).then(resolved, rejected);
 }
 
+//================================================================================
+function Promise(setup) {
+	var pending = true, err, val, list = [];
+	this.$push = function () {
+		list.push(arguments);
+		if (!pending) setImmediate(fire);
+	};
+	setup(resolve, reject);
+	function resolve(v) {
+		if (pending) val = v, pending = false;
+		setImmediate(fire);
+	}
+	function reject(e) {
+		if (pending) err = e, pending = false;
+		setImmediate(fire);
+	}
+	function fire() {
+		if (pending) return;
+		var pair;
+		while (pair = list.shift())
+			(function (rejected, resolved, cb) {
+				try {
+					err ? rejected ? valcb(rejected(err), cb): cb(err) :
+						valcb(resolved ? resolved(val) : val, cb);
+				} catch (e) { cb(e); }
+			})(pair[0], pair[1], pair[2]);
+	} // fire
+	this.toString = function () {
+		return pending ? 'pending' : err ? 'rejected' : 'resolved';
+	};
+}
+Promise.prototype.then = function then(resolved, rejected) {
+	var self = this;
+	return new Promise(function (res, rej) {
+		self.$push(rejected, resolved,
+			function cb(e, v) { e ? rej(e) : res(v); });
+	});
+};
+Promise.prototype['catch'] = function caught(rejected) {
+	return this.then(void 0, rejected);
+};
+Promise.resolve = function resolve(val) {
+	return new Promise(function (res, rej) {
+		valcb(val, function (e, v) { e ? rej(e) : res(v); });
+	});
+};
+Promise.reject = function reject(err) {
+	return new Promise(function (res, rej) { rej(err); });
+};
+Promise.all = function all(arr) {
+	return new Promise(function (res, rej) {
+		arrcb(arr, function (e, v) { e ? rej(e) : res(v); });
+	});
+};
+
+//================================================================================
 function wait(msec, val, cb) {
 	return Thunk(function (cb) {
 		if (msec < 0) setTimeout(cb, 0, new Error('msec must be plus or zero'));
@@ -205,7 +260,8 @@ function aa(gtor, cb) {
 function valcb(val, cb) {
 	return !val ? cb(null, val) :
 		typeof val === 'function' ? val(cb) :
-		typeof val.then === 'function' ? val.then(cb, cb) :
+		typeof val.then === 'function' ?
+			val.then(function (v) { return cb(null, v); }, cb) :
 		typeof val.cb === 'function' ? aa(val)(cb) :
 		val instanceof Error ? cb(val) :
 		cb(null, val);

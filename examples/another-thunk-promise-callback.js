@@ -1,85 +1,13 @@
 'use strict';
 
-// Thunk0
-
-//================================================================================
-function Thunk0(setup) {
-	var list = [], args;
-	try{ setup(cb); } catch (e) { cb(e); }
-	return thunk;
-
-	function thunk(cb) {
-		list.push(cb);
-		args && fire();
-		return Thunk0(function (next) { cb.next = next; });
-	} // thunk
-
-	function cb(err, val) {
-		if (args) return args[0] ?
-			err ? console.log('rejected twice:', err, args[0]) :
-				console.log('resolved after rejected:', val, args[0]) :
-			err ? console.log('rejected after resolved:', err, args[1]) :
-				console.log('resolved twice:', val, args[1]);
-		args = arguments;
-		list.length && fire();
-	} // cb
-
-	function fire() {
-		var cb;
-		while (cb = list.shift()) {
-			var next = cb.next;
-			try {
-				var r = cb.apply(null, args);
-				if (typeof r === 'function') r(next);
-				else if (r && r.then) r.then(
-					function (v) { next(null, v); }, next);
-				else if (r instanceof Error) next(r);
-				else next(null, r);
-			} catch (e) { next(e); }
-		}
-	} // fire
-} // Thunk0
-
-//if (typeof module === 'object' && module && module.exports)
-//	module.exports = Thunk;
-
-//================================================================================
-function Thunk1(setup) {
-	var list = [], next, args;
-	try { setup(cb); } catch (e) { cb(e); }
-	return thunk;
-
-	function thunk(cb) {
-		list.push(cb);
-		args && fire();
-		return Thunk1(function (cb) { next = cb; });
-	} // thunk
-
-	function cb(err, val) {
-		args = arguments;
-		list.length && fire();
-	} // cb
-
-	function fire() {
-		try {
-			var callback;
-			while (callback = list.shift()) {
-				var r = callback.apply(null, args);
-				if (typeof r === 'function') r(next);
-				else if (r && r.then) r.then(
-					function (v) { next(null, v); }, next);
-				else if (r instanceof Error) next(r);
-				else next(null, r);
-			}
-		} catch (e) { next(e); }
-	} // fire
-} // Thunk1
+if (typeof module === 'object' && module && module.exports)
+	module.exports = Thunk;
 
 //================================================================================
 function Thunk(setup, cb) {
 	var list = typeof cb === 'function' ? [cb] : [];
-	var args = null, initialized = false;
-	var next = null, result = undefined, noResult = true;
+	var args = null, notYetSetup = true;
+	var next = null, result = undefined, notYetResult = true;
 
 	callback.promise = null;
 	callback.then = then;
@@ -87,7 +15,7 @@ function Thunk(setup, cb) {
 
 	if (typeof setup === 'function' &&
 		typeof cb === 'function') {
-		initialized = true;
+		notYetSetup = false;
 		setup(callback, callback); // throws
 		return;
 	}
@@ -97,34 +25,45 @@ function Thunk(setup, cb) {
 	function callback(first, val) {
 		// thunk
 		if (typeof first === 'function') {
-			if (!initialized &&
+			if (notYetSetup &&
 				typeof setup === 'function' &&
 				typeof cb !== 'function')
-				try { initialized = true; setup(callback, callback); }
+				try { notYetSetup = false; setup(callback, callback); }
 				catch (err) { callback(err); }
 
-			if (!next) {
+			//if (!next) {
 				next = Thunk();
 				list.push(function (err, val) {
 					var args = normalizeArgs(arguments);
 					try { return valcb(first.apply(null, args), next); }
 					catch (err) { return next(err); }
 				});
-			}
+			//}
 			if (args) fire();
 			return next;
 		}
 
 		// callback
+		//if (args) {
+		//	var args2 = normalizeArgs(arguments);
+		//	args[0] ?
+		//		args2[0] ?
+		//			console.log('rejected twice:', args2[0], args[0]) :
+		//			console.log('resolved after rejected:', args2[1], args[0]) :
+		//		args2[0] ?
+		//			console.log('rejected after resolved:', args2[0], args[1]) :
+		//			console.log('resolved twice:', args2[1], args[1]);
+		//}
+
 		if (!args) args = normalizeArgs(arguments);
-		return fire();
+		return next ? fire() : void 0;
 	} // callback
 
 	function fire() {
 		var cb = null;
 		while (cb = list.shift()) {
 			var r = cb.apply(null, args);
-			if (noResult) result = r, noResult = false;
+			if (notYetResult) result = r, notYetResult = false;
 		}
 		return result;
 	} // fire
@@ -134,9 +73,8 @@ var slice = [].slice;
 
 function normalizeArgs(args) {
 	switch (args.length) {
-		case 0: return [];
-		case 1: return args[0] instanceof Error ? [args[0]] : [null, args[0]];
-		case 2: return [args[0], args[1]];
+		case 0: case 2: return args;
+		case 1: return args[0] instanceof Error ? args : [null, args[0]];
 		case 3: return [args[0], [args[1], args[2]]];
 		default: return [args[0]].concat(slice.call(args, 1));
 	}
@@ -181,7 +119,8 @@ function Promise(setup) {
 			})(pair[0], pair[1], pair[2]);
 	} // fire
 	this.toString = function () {
-		return pending ? 'pending' : err ? 'rejected' : 'resolved';
+		return pending ? 'pending' :
+			err ? 'rejected ' + err : 'resolved ' + val;
 	};
 }
 Promise.prototype.then = function then(resolved, rejected) {

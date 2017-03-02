@@ -130,7 +130,7 @@ function valcb(val, cb) {
 
 function arrcb(arr, cb) {
 	var n = arr.length, res = new Array(n);
-	if (n === 0) cb(null, arr);
+	if (n === 0) return cb(null, arr);
 	arr.forEach(function (val, i) {
 		valcb(val, function (err, val) {
 			if (arguments.length === 1 && !(err instanceof Error))
@@ -144,7 +144,7 @@ function arrcb(arr, cb) {
 
 function objcb(obj, cb) {
 	var keys = Object.keys(obj), n = keys.length;
-	if (n === 0) cb(null, obj);
+	if (n === 0) return cb(null, obj);
 	var res = keys.reduce(function (res, i) { res[i] = void 0; return res; }, {});
 	keys.forEach(function (i) {
 		valcb(obj[i], function (err, val) {

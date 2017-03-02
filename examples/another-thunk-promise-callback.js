@@ -98,7 +98,7 @@ function Promise(setup) {
 		list.push(arguments);
 		if (!pending) setImmediate(fire);
 	};
-	setup(resolve, reject);
+	setup(resolve, reject); // throws
 	function resolve(v) {
 		if (pending) val = v, pending = false;
 		setImmediate(fire);

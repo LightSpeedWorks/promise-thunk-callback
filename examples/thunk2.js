@@ -86,14 +86,30 @@ function normalizeArgs(args) {
 }
 
 function caught(rejected) {
-	return this.then(void 0, rejected);
+	var next = Thunk();
+	this(function (err, val) {
+		try { return valcb(err ?
+			rejected ? rejected(err) : err :
+			val, next);
+		} catch (e) { return next(e); }
+	});
+	return next;
+//	return this.then(void 0, rejected);
 }
 
 function then(resolved, rejected) {
-	var thunk = this;
-	return (this.promise || (this.promise = new Promise(function (res, rej) {
-		thunk(function (err, val) { return err ? rej(err) : res(val); });
-	}))).then(resolved, rejected);
+	var next = Thunk();
+	this(function (err, val) {
+		try { return valcb(err ?
+			rejected ? rejected(err) : err :
+			resolved ? resolved(val) : val, next);
+		} catch (e) { return next(e); }
+	});
+	return next;
+//	var thunk = this;
+//	return (this.promise || (this.promise = new Promise(function (res, rej) {
+//		thunk(function (err, val) { return err ? rej(err) : res(val); });
+//	}))).then(resolved, rejected);
 }
 
 //================================================================================

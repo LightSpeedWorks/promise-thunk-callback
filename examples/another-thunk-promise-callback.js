@@ -3,6 +3,11 @@
 if (typeof module === 'object' && module && module.exports)
 	module.exports = Thunk;
 
+Thunk.aa = aa;
+Thunk.Channel = Channel;
+Thunk.all = all;
+Thunk.race = race;
+
 //================================================================================
 function Thunk(setup, cb) {
 	var list = typeof cb === 'function' ? [cb] : [];
@@ -253,6 +258,47 @@ function objcb(obj, cb) {
 			if (--n === 0) cb(null, res);
 		});
 	});
+}
+
+//================================================================================
+function all(arr, cb) {
+	return Thunk(function (cb) {
+		(arr.constructor === Array ? arrcb : objcb)(arr, cb);
+	}, cb);
+}
+
+function racecb(arr, cb) {
+	var end = false;
+	arr.forEach(function (val, i) {
+		valcb(val, function (err, val) {
+			if (end) return;
+			if (arguments.length === 1 && !(err instanceof Error))
+				val = err, err = null;
+			end = true;
+			err ? cb(err) : cb(null, val);
+		});
+	});
+}
+
+function raceobjcb(obj, cb) {
+	var end = false;
+	var keys = Object.keys(obj);
+	keys.forEach(function (i) {
+		valcb(obj[i], function (err, val) {
+			if (end) return;
+			if (arguments.length === 1 && !(err instanceof Error))
+				val = err, err = null;
+			if (err) return n = 0, cb(err);
+			end = true;
+			err ? cb(err) : cb(null, val);
+		});
+	});
+}
+
+function race(arr, cb) {
+	return Thunk(function (cb) {
+		(arr.constructor === Array ? racecb : raceobjcb)(arr, cb);
+	}, cb);
 }
 
 //================================================================================

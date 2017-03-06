@@ -17,19 +17,30 @@ Thunk.reject = reject;
 Thunk.Channel = Channel;
 Thunk.wait = wait;
 
-var nextTick = //typeof process === 'object' && process &&
-	//typeof process.nextTick === 'function' ? process.nextTick :
-	typeof setImmediate === 'function' ? setImmediate :
+var nextTickDo = typeof setImmediate === 'function' ? setImmediate :
 	function nextTick(cb) { setTimeout(cb, 0); };
 
-var NN = 500, nn = NN;
+var tasksInProgress = false;
+var tasksQueue = [];
+function nextTick() {
+	tasksQueue.push(arguments);
+	if (tasksInProgress) return;
+	tasksInProgress = true;
+	nextTickDo(tasksExecutor);
+}
+function tasksExecutor() {
+	var args;
+	while (args = tasksQueue.shift()) args[0](args[1]);
+	tasksInProgress = false;
+}
+
+var slice = [].slice;
 
 //================================================================================
 function Thunk(setup, cbOpts) {
-	var list = typeof cbOpts === 'function' ? [cbOpts] : [];
+	var list = typeof cbOpts === 'function' ? [normalizeCb(cbOpts)] : [];
 	var args = null, notYetSetup = true;
 	var result = undefined, notYetResult = true;
-	var doNextTick = cbOpts != null && cbOpts.nextTick;
 
 	thunk.then = then;
 	thunk['catch'] = caught;
@@ -48,8 +59,8 @@ function Thunk(setup, cbOpts) {
 
 	return thunk;
 
-	function thunk(cb) {
-		if (typeof cb === 'function') {
+	function thunk(callback) {
+		if (typeof callback === 'function') {
 			if (notYetSetup &&
 				typeof setup === 'function')
 				try { notYetSetup = false; setup(thunk, thunk); }
@@ -57,14 +68,16 @@ function Thunk(setup, cbOpts) {
 
 			return Thunk(function (thunk) {
 				list.push(function (err, val) {
-					try { return valcb(cb.apply(null,
-						normalizeArgs(arguments)), thunk); }
+					if (arguments.length === 1)
+						err instanceof Error || (val = err, err = null);
+					else if (arguments.length > 2)
+						val = slice.call(arguments, 1);
+					try { return valcb(callback(err, val), thunk); }
+					// try { return valcb(callback.apply(null,
+					//	normalizeArgs(arguments)), thunk); }
 					catch (err) { return thunk(err); }
 				});
-				if (args)
-					doNextTick || --nn < 0 ?
-						(nn = NN, void nextTick(fire)) :
-						fire();
+				if (args) nextTick(fire);
 			}, {immediate: true});
 		}
 
@@ -80,10 +93,8 @@ function Thunk(setup, cbOpts) {
 		//			console.log('resolved twice:', args2[1], args[1]);
 		//}
 
-		if (!args) args = normalizeArgs(arguments);
-		return list.length > 0 ?
-			doNextTick || --nn < 0 ? (nn = NN, void nextTick(fire)) :
-				fire() : void 0;
+		if (!args) args = arguments; //normalizeArgs(arguments);
+		return list.length > 0 ? void nextTick(fire) : void 0;
 	} // thunk
 
 	function fire() {
@@ -96,8 +107,6 @@ function Thunk(setup, cbOpts) {
 	} // fire
 }
 
-var slice = [].slice;
-
 function normalizeArgs(args) {
 	switch (args.length) {
 		case 0: case 2: return args;
@@ -107,37 +116,55 @@ function normalizeArgs(args) {
 	}
 }
 
+// function normalizeCb(cb) {
+//	return function () { return cb.apply(null, normalizeArgs(arguments)); };
+// }
+function normalizeCb(cb) {
+	return function (err, val) {
+		if (arguments.length === 1)
+			err instanceof Error || (val = err, err = null);
+		else if (arguments.length > 2)
+			val = slice.call(arguments, 1);
+		// switch (arguments.length) {
+		//	case 0: case 2: break;
+		//	case 1: err instanceof Error || (val = err, err = null); break;
+		//	case 3: val = [val, next]; break;
+		//	default: val = slice.call(arguments, 1); break;
+		// }
+		return cb(err, val);
+	};
+}
+
 function caught(rejected) {
 	var self = this;
-	return Thunk(function (thunk) {
+	return Thunk(function (cb) {
 		self(function (err, val) {
 			try { return valcb(err ?
-				rejected ? rejected(err) : err :
-				val, thunk);
-			} catch (e) { return thunk(e); }
+				rejected ? rejected(err) : err : val, cb);
+			} catch (e) { return cb(e); }
 		});
 	}, {immediate: true});
 }
 
 function then(resolved, rejected) {
 	var self = this;
-	return Thunk(function (thunk) {
+	return Thunk(function (cb) {
 		self(function (err, val) {
 			try { return valcb(err ?
 				rejected ? rejected(err) : err :
-				resolved ? resolved(val) : val, thunk);
-			} catch (e) { return thunk(e); }
+				resolved ? resolved(val) : val, cb);
+			} catch (e) { return cb(e); }
 		});
 	}, {immediate: true});
 }
 
 //================================================================================
 function resolve(val) {
-	return Thunk(function (thunk) { valcb(val, thunk); }, {nextTick: true});
+	return Thunk(function (cb) { valcb(val, cb); });
 }
 
 function reject(err) {
-	return Thunk(function (thunk) { thunk(err); }, {nextTick: true});
+	return Thunk(function (cb) { cb(err); });
 }
 
 //================================================================================
@@ -145,26 +172,31 @@ function aa(gtor, cbOpts) {
 	if (typeof gtor === 'function') gtor = gtor();
 
 	return Thunk(!gtor || typeof gtor.next !== 'function' ?
-		function (thunk) { valcb(gtor, thunk); } :
-		function (thunk) {
-			return function cb2(err, val) {
-				if (arguments.length === 1 && !(err instanceof Error))
-					val = err, err = null;
+		function (callback) { valcb(gtor, callback); } :
+		function (callback) {
+			return function cb(err, val) {
+				// var args = normalizeArgs(arguments), err = args[0], val = args[1];
+				if (arguments.length === 1)
+					err instanceof Error || (val = err, err = null);
+				else if (arguments.length > 2)
+					val = slice.call(arguments, 1);
+				// if (arguments.length === 1 && !(err instanceof Error))
+				//	val = err, err = null;
 				try { var obj = err ? gtor.throw(err) : gtor.next(val);
-				} catch (err) { return thunk(err); }
+				} catch (err) { return callback(err); }
 				val = obj.value;
-				return obj.done ? valcb(val, thunk) :
-					val && val.constructor === Array ? arrcb(val, cb2) :
-					val && val.constructor === Object ? objcb(val, cb2) :
-					valcb(val, cb2);
+				return obj.done ? valcb(val, callback) :
+					val && val.constructor === Array ? arrcb(val, cb) :
+					val && val.constructor === Object ? objcb(val, cb) :
+					valcb(val, cb);
 			} ();
 		}, cbOpts);
 }
 
 function valcb(val, cb) {
+	// cb = normalizeCb(cb);
 	return !val ? cb(null, val) :
-		typeof val === 'function' ?
-			--nn < 0 ? (nn = NN, nextTick(function () { val(cb); })) : val(cb) :
+		typeof val === 'function' ? nextTick(val, cb) :
 		typeof val.then === 'function' ?
 			val.then(function (v) { return valcb(v, cb); }, cb) :
 		typeof val.next === 'function' ? aa(val)(cb) :
@@ -177,8 +209,13 @@ function arrcb(arr, cb) {
 	if (n === 0) return cb(null, arr);
 	arr.forEach(function (val, i) {
 		valcb(val, function (err, val) {
-			if (arguments.length === 1 && !(err instanceof Error))
-				val = err, err = null;
+			if (arguments.length === 1)
+				err instanceof Error || (val = err, err = null);
+			else if (arguments.length > 2)
+				val = slice.call(arguments, 1);
+			// var args = normalizeArgs(arguments), err = args[0], val = args[1];
+			// if (arguments.length === 1 && !(err instanceof Error))
+			//	val = err, err = null;
 			if (err) return n = 0, cb(err);
 			res[i] = val;
 			if (--n === 0) cb(null, res);
@@ -192,8 +229,13 @@ function objcb(obj, cb) {
 	var res = keys.reduce(function (res, i) { res[i] = void 0; return res; }, {});
 	keys.forEach(function (i) {
 		valcb(obj[i], function (err, val) {
-			if (arguments.length === 1 && !(err instanceof Error))
-				val = err, err = null;
+			if (arguments.length === 1)
+				err instanceof Error || (val = err, err = null);
+			else if (arguments.length > 2)
+				val = slice.call(arguments, 1);
+			// var args = normalizeArgs(arguments), err = args[0], val = args[1];
+			// if (arguments.length === 1 && !(err instanceof Error))
+			//	val = err, err = null;
 			if (err) return n = 0, cb(err);
 			res[i] = val;
 			if (--n === 0) cb(null, res);
@@ -203,8 +245,8 @@ function objcb(obj, cb) {
 
 //================================================================================
 function all(arr, cbOpts) {
-	return Thunk(function (thunk) {
-		(arr.constructor === Array ? arrcb : objcb)(arr, thunk);
+	return Thunk(function (cb) {
+		(arr.constructor === Array ? arrcb : objcb)(arr, cb);
 	}, cbOpts);
 }
 
@@ -213,8 +255,13 @@ function racecb(arr, cb) {
 	arr.forEach(function (val, i) {
 		valcb(val, function (err, val) {
 			if (end) return;
-			if (arguments.length === 1 && !(err instanceof Error))
-				val = err, err = null;
+			if (arguments.length === 1)
+				err instanceof Error || (val = err, err = null);
+			else if (arguments.length > 2)
+				val = slice.call(arguments, 1);
+			// var args = normalizeArgs(arguments), err = args[0], val = args[1];
+			// if (arguments.length === 1 && !(err instanceof Error))
+			//	val = err, err = null;
 			end = true;
 			err ? cb(err) : cb(null, val);
 		});
@@ -226,8 +273,13 @@ function raceobjcb(obj, cb) {
 	keys.forEach(function (i) {
 		valcb(obj[i], function (err, val) {
 			if (end) return;
-			if (arguments.length === 1 && !(err instanceof Error))
-				val = err, err = null;
+			if (arguments.length === 1)
+				err instanceof Error || (val = err, err = null);
+			else if (arguments.length > 2)
+				val = slice.call(arguments, 1);
+			// var args = normalizeArgs(arguments), err = args[0], val = args[1];
+			// if (arguments.length === 1 && !(err instanceof Error))
+			//	val = err, err = null;
 			end = true;
 			err ? cb(err) : cb(null, val);
 		});
@@ -235,8 +287,8 @@ function raceobjcb(obj, cb) {
 }
 
 function race(arr, cbOpts) {
-	return Thunk(function (thunk) {
-		(arr.constructor === Array ? racecb : raceobjcb)(arr, thunk);
+	return Thunk(function (cb) {
+		(arr.constructor === Array ? racecb : raceobjcb)(arr, cb);
 	}, cbOpts);
 }
 
@@ -254,9 +306,9 @@ function Channel() {
 
 //================================================================================
 function wait(msec, val, cbOpts) {
-	return Thunk(function (thunk) {
-		if (msec < 0) setTimeout(thunk, 0, new Error('msec must be plus or zero'));
-		else setTimeout(thunk, msec, null, val);
+	return Thunk(function (cb) {
+		if (msec < 0) setTimeout(cb, 0, new Error('msec must be plus or zero'));
+		else setTimeout(cb, msec, null, val);
 	}, cbOpts);
 }
 
@@ -379,18 +431,30 @@ console.log('@y' + ++y + ' y13'), a(y === 13, 'y13');
 
 var z = 10;
 console.log('@z' + ++z + ' z11'), a(z === 11, 'z11');
-Thunk(function (res, rej) { res(true); }, {nextTick: true})
+Thunk(function (res, rej) { res(true); })
 .then(val => (console.log('@z' + ++z + ' z14  ' + val), a(z === 14, 'z14')),
       err => (console.log('@z' + ++z + ' z14e ' + err), a((z = -14), F)))
 .catch(err => console.error('@z' + x + ' z14z ' + (err.stack || err + '')));
 console.log('@z' + ++z + ' z12'), a(z === 12, 'z12');
-Thunk(function (res, rej) { rej(new Error('always error')); }, {nextTick: true})
+Thunk(function (res, rej) { rej(new Error('always error')); })
 .then(val => (console.log('@z' + ++z + ' z15  ' + val), a((z = -15), F)),
       err => (console.log('@z' + ++z + ' z15e ' + err), a(z === 15, 'z15')))
 .catch(err => console.error('@z' + x + ' z15z ' + (err.stack || err + '')));
 console.log('@z' + ++z + ' z13'), a(z === 13, 'z13');
 
 var w = 10;
+console.log('@w' + ++w + ' w11'), a(w === 11, 'w11');
+Thunk(function (res, rej) { res(true); })
+.then(val => (console.log('@w' + ++w + ' w14  ' + val), a(w === 14, 'w14')),
+      err => (console.log('@w' + ++w + ' w14e ' + err), a((w = -14), F)))
+.catch(err => console.error('@w' + x + ' w14z ' + (err.stack || err + '')));
+console.log('@w' + ++w + ' w12'), a(w === 12, 'w12');
+Thunk(function (res, rej) { rej(new Error('always error')); })
+.then(val => (console.log('@w' + ++w + ' w15  ' + val), a((w = -15), F)),
+      err => (console.log('@w' + ++w + ' w15e ' + err), a(w === 15, 'w15')))
+.catch(err => console.error('@w' + x + ' w15z ' + (err.stack || err + '')));
+console.log('@w' + ++w + ' w13'), a(w === 13, 'w13');
+/*
 console.log('@w' + ++w + ' w11'), a(w === 11, 'w11');
 Thunk(function (res, rej) { res(true); })
 .then(val => (console.log('@w' + ++w + ' w12  ' + val), a(w === 12, 'w12')),
@@ -402,6 +466,7 @@ Thunk(function (res, rej) { rej(new Error('always error')); })
       err => (console.log('@w' + ++w + ' w14e ' + err), a(w === 14, 'w14')))
 .catch(err => console.error('@w' + x + ' w14z ' + (err.stack || err + '')));
 console.log('@w' + ++w + ' w15'), a(w === 15, 'w15');
+*/
 
 aa(function *() {
 	yield wait(5000);
@@ -461,10 +526,10 @@ function bench2(cb) {
 	}, cb);
 }
 function bench3(cb) {
-	var p = Thunk(function (thunk) { thunk(0); });
+	var p = Thunk(function (cb) { cb(0); });
 	for (var i = 0; i < N; ++i)
 		p = p(function (err, val) {
-			return Thunk(function (thunk) { thunk(0); });
+			return Thunk(function (cb) { cb(0); });
 		});
 	p(cb);
 }

@@ -1,3 +1,4 @@
+(function (g) {
 'use strict';
 
 // Unified Thunk! Thunk with Promise and Callback!
@@ -6,12 +7,15 @@
 if (typeof module === 'object' && module && module.exports)
 	module.exports = Thunk;
 
+g.Thunk = Thunk;
+
 Thunk.aa = aa;
 Thunk.all = all;
 Thunk.race = race;
 Thunk.resolve = resolve;
 Thunk.reject = reject;
 Thunk.Channel = Channel;
+Thunk.wait = wait;
 
 var nextTick = //typeof process === 'object' && process &&
 	//typeof process.nextTick === 'function' ? process.nextTick :
@@ -248,6 +252,18 @@ function Channel() {
 	}
 }
 
+//================================================================================
+function wait(msec, val, cbOpts) {
+	return Thunk(function (thunk) {
+		if (msec < 0) setTimeout(thunk, 0, new Error('msec must be plus or zero'));
+		else setTimeout(thunk, msec, null, val);
+	}, cbOpts);
+}
+
+})(Function('return this')());
+
+const {aa, wait, Channel} = Thunk;
+
 // DELETE FROM HERE
 //================================================================================
 /*
@@ -308,15 +324,7 @@ Promise.all = function all(arr) {
 */
 
 //================================================================================
-function wait(msec, val, cbOpts) {
-	return Thunk(function (thunk) {
-		if (msec < 0) setTimeout(thunk, 0, new Error('msec must be plus or zero'));
-		else setTimeout(thunk, msec, null, val);
-	}, cbOpts);
-}
-
-//================================================================================
-let x = 10, F = false;
+var x = 10, F = false;
 function a(v, m) {
 	if (v) return;
 	m = m || ('assert 失敗 @' + x);
@@ -356,7 +364,7 @@ wait(4000, 'wd_4000')
 .catch(err => console.error('@x' + x + ' wd  ' + (err.stack || err + '')));
 console.log('@x' + ++x + ' wz0'), a(x === 15);
 
-let y = 10;
+var y = 10;
 console.log('@y' + ++y + ' y11'), a(y === 11, 'y11');
 Thunk.resolve(true)
 .then(val => (console.log('@y' + ++y + ' y14  ' + val), a(y === 14, 'y14')),
@@ -369,7 +377,7 @@ Thunk.reject(new Error('always error'))
 .catch(err => console.error('@y' + x + ' y15z ' + (err.stack || err + '')));
 console.log('@y' + ++y + ' y13'), a(y === 13, 'y13');
 
-let z = 10;
+var z = 10;
 console.log('@z' + ++z + ' z11'), a(z === 11, 'z11');
 Thunk(function (res, rej) { res(true); }, {nextTick: true})
 .then(val => (console.log('@z' + ++z + ' z14  ' + val), a(z === 14, 'z14')),
@@ -382,7 +390,7 @@ Thunk(function (res, rej) { rej(new Error('always error')); }, {nextTick: true})
 .catch(err => console.error('@z' + x + ' z15z ' + (err.stack || err + '')));
 console.log('@z' + ++z + ' z13'), a(z === 13, 'z13');
 
-let w = 10;
+var w = 10;
 console.log('@w' + ++w + ' w11'), a(w === 11, 'w11');
 Thunk(function (res, rej) { res(true); })
 .then(val => (console.log('@w' + ++w + ' w12  ' + val), a(w === 12, 'w12')),
@@ -414,7 +422,7 @@ aa(function *() {
 	a((yield chan) === 5);
 	a((yield chan) === 6);
 	console.log('Channel works');
-}, {immediate: true});
+}, err => err && console.error(err));
 
 aa(function *() {
 	yield wait(6000);
@@ -425,7 +433,7 @@ aa(function *() {
 	thunk(1);
 	a((yield thunk) === 0);
 	console.log('Thunk works');
-}, {immediate: true});
+}, err => err && console.error(err));
 
 function benchcb(name, bench, cb) {
 	const start = Date.now();
@@ -439,30 +447,30 @@ function benchcb(name, bench, cb) {
 
 const N = 5e4;
 function bench1(cb) {
-	let p = Promise.resolve(0);
-	for (let i = 0; i < N; ++i)
+	var p = Promise.resolve(0);
+	for (var i = 0; i < N; ++i)
 		p = p.then(function (val) { return Promise.resolve(0); });
 	p.then(val => cb(null, val), err => cb(err));
 }
 function bench2(cb) {
 	aa(function *() {
-		let p = cb => cb(null, 0);
-		for (let i = 0; i < N; ++i)
+		var p = cb => cb(null, 0);
+		for (var i = 0; i < N; ++i)
 			yield p;
 		return 0;
 	}, cb);
 }
 function bench3(cb) {
-	let p = Thunk(function (thunk) { thunk(0); });
-	for (let i = 0; i < N; ++i)
+	var p = Thunk(function (thunk) { thunk(0); });
+	for (var i = 0; i < N; ++i)
 		p = p(function (err, val) {
 			return Thunk(function (thunk) { thunk(0); });
 		});
 	p(cb);
 }
 function bench4(cb) {
-	let p = Thunk.resolve(0);
-	for (let i = 0; i < N; ++i)
+	var p = Thunk.resolve(0);
+	for (var i = 0; i < N; ++i)
 		p = p.then(function (val) {
 			return Thunk.resolve(0);
 		});
@@ -471,7 +479,7 @@ function bench4(cb) {
 aa(function *() {
 	yield wait(7000);
 	console.log('Benchmark start');
-	for (let i = 0; i < 20; ++i) {
+	for (var i = 0; i < 20; ++i) {
 		console.log(
 			yield cb => benchcb('1:NativePromise', bench1, cb),
 			yield cb => benchcb('2:Callback', bench2, cb),
@@ -479,5 +487,4 @@ aa(function *() {
 			yield cb => benchcb('4:ThunkAsync', bench4, cb));
 	}
 	console.log('Benchmark end');
-}, {immediate: true})
-.catch(err => console.error(err));
+}, err => err && console.error(err));

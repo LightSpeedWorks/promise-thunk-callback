@@ -1,51 +1,71 @@
+(function (g) {
 'use strict';
+
+// Unified Thunk! Thunk with Promise and Callback!
+// thunk === promise === callback!
 
 if (typeof module === 'object' && module && module.exports)
 	module.exports = Thunk;
 
+g.Thunk = Thunk;
+
 Thunk.aa = aa;
-Thunk.Channel = Channel;
 Thunk.all = all;
 Thunk.race = race;
+Thunk.resolve = resolve;
+Thunk.reject = reject;
+Thunk.Channel = Channel;
+Thunk.wait = wait;
+
+var nextTick = //typeof process === 'object' && process &&
+	//typeof process.nextTick === 'function' ? process.nextTick :
+	typeof setImmediate === 'function' ? setImmediate :
+	function nextTick(cb) { setTimeout(cb, 0); };
+
+var NN = 50, nn = NN;
 
 //================================================================================
-function Thunk(setup, cb) {
-	var list = typeof cb === 'function' ? [cb] : [];
+function Thunk(setup, cbOpts) {
+	var list = typeof cbOpts === 'function' ? [cbOpts] : [];
 	var args = null, notYetSetup = true;
-	var next = null, result = undefined, notYetResult = true;
+	var result = undefined, notYetResult = true;
+	var doNextTick = cbOpts != null && cbOpts.nextTick;
 
-	callback.promise = null;
-	callback.then = then;
-	callback['catch'] = caught;
+	thunk.then = then;
+	thunk['catch'] = caught;
 
-	if (typeof setup === 'function' &&
-		typeof cb === 'function') {
-		notYetSetup = false;
-		setup(callback, callback); // throws
-		return;
+	if (typeof setup === 'function') {
+		if (typeof cbOpts === 'function') {
+			notYetSetup = false;
+			setup(thunk, thunk); // throws
+			return;
+		}
+		else if (cbOpts && cbOpts.immediate) {
+			notYetSetup = false;
+			setup(thunk, thunk); // throws
+		}
 	}
 
-	return callback;
+	return thunk;
 
-	function callback(first, val) {
-		// thunk
-		if (typeof first === 'function') {
+	function thunk(cb) {
+		if (typeof cb === 'function') {
 			if (notYetSetup &&
-				typeof setup === 'function' &&
-				typeof cb !== 'function')
-				try { notYetSetup = false; setup(callback, callback); }
-				catch (err) { callback(err); }
+				typeof setup === 'function')
+				try { notYetSetup = false; setup(thunk, thunk); }
+				catch (err) { thunk(err); }
 
-			//if (!next) {
-				next = Thunk();
+			return Thunk(function (thunk) {
 				list.push(function (err, val) {
-					var args = normalizeArgs(arguments);
-					try { return valcb(first.apply(null, args), next); }
-					catch (err) { return next(err); }
+					try { return valcb(cb.apply(null,
+						normalizeArgs(arguments)), thunk); }
+					catch (err) { return thunk(err); }
 				});
-			//}
-			if (args) fire();
-			return next;
+				if (args)
+					doNextTick || --nn < 0 ?
+						(nn = NN, void nextTick(fire)) :
+						fire();
+			}, {immediate: true});
 		}
 
 		// callback
@@ -61,8 +81,10 @@ function Thunk(setup, cb) {
 		//}
 
 		if (!args) args = normalizeArgs(arguments);
-		return next ? fire() : void 0;
-	} // callback
+		return list.length > 0 ?
+			doNextTick || --nn < 0 ? (nn = NN, void nextTick(fire)) :
+				fire() : void 0;
+	} // thunk
 
 	function fire() {
 		var cb = null;
@@ -86,60 +108,66 @@ function normalizeArgs(args) {
 }
 
 function caught(rejected) {
-	var next = Thunk();
-	this(function (err, val) {
-		try { return valcb(err ?
-			rejected ? rejected(err) : err :
-			val, next);
-		} catch (e) { return next(e); }
-	});
-	return next;
-//	return this.then(void 0, rejected);
+	var self = this;
+	return Thunk(function (thunk) {
+		self(function (err, val) {
+			try { return valcb(err ?
+				rejected ? rejected(err) : err :
+				val, thunk);
+			} catch (e) { return thunk(e); }
+		});
+	}, {immediate: true});
 }
 
 function then(resolved, rejected) {
-	var next = Thunk();
-	this(function (err, val) {
-		try { return valcb(err ?
-			rejected ? rejected(err) : err :
-			resolved ? resolved(val) : val, next);
-		} catch (e) { return next(e); }
-	});
-	return next;
-//	var thunk = this;
-//	return (this.promise || (this.promise = new Promise(function (res, rej) {
-//		thunk(function (err, val) { return err ? rej(err) : res(val); });
-//	}))).then(resolved, rejected);
+	var self = this;
+	return Thunk(function (thunk) {
+		self(function (err, val) {
+			try { return valcb(err ?
+				rejected ? rejected(err) : err :
+				resolved ? resolved(val) : val, thunk);
+			} catch (e) { return thunk(e); }
+		});
+	}, {immediate: true});
 }
 
 //================================================================================
-function aa(gtor, cb) {
+function resolve(val) {
+	return Thunk(function (thunk) { valcb(val, thunk); }, {nextTick: true});
+}
+
+function reject(err) {
+	return Thunk(function (thunk) { thunk(err); }, {nextTick: true});
+}
+
+//================================================================================
+function aa(gtor, cbOpts) {
 	if (typeof gtor === 'function') gtor = gtor();
 
-	if (!gtor || typeof gtor.next !== 'function')
-		return Thunk(function (cb) { cb(null, gtor); }, cb);
-
-	return Thunk(function (cb) {
-		return function next(err, val) {
-			if (arguments.length === 1 && !(err instanceof Error))
-				val = err, err = null;
-			try { var obj = err ? gtor.throw(err) : gtor.next(val);
-			} catch (err) { cb(err); }
-			val = obj.value;
-			return obj.done ? cb(null, val) :
-				val && val.constructor === Array ? arrcb(val, next) :
-				val && val.constructor === Object ? objcb(val, next) :
-				valcb(val, next);
-		} ();
-	}, cb);
+	return Thunk(!gtor || typeof gtor.next !== 'function' ?
+		function (thunk) { valcb(gtor, thunk); } :
+		function (thunk) {
+			return function cb2(err, val) {
+				if (arguments.length === 1 && !(err instanceof Error))
+					val = err, err = null;
+				try { var obj = err ? gtor.throw(err) : gtor.next(val);
+				} catch (err) { return thunk(err); }
+				val = obj.value;
+				return obj.done ? valcb(val, thunk) :
+					val && val.constructor === Array ? arrcb(val, cb2) :
+					val && val.constructor === Object ? objcb(val, cb2) :
+					valcb(val, cb2);
+			} ();
+		}, cbOpts);
 }
 
 function valcb(val, cb) {
 	return !val ? cb(null, val) :
-		typeof val === 'function' ? val(cb) :
+		typeof val === 'function' ?
+			--nn < 0 ? (nn = NN, nextTick(function () { val(cb); })) : val(cb) :
 		typeof val.then === 'function' ?
-			val.then(function (v) { return cb(null, v); }, cb) :
-		typeof val.cb === 'function' ? aa(val)(cb) :
+			val.then(function (v) { return valcb(v, cb); }, cb) :
+		typeof val.next === 'function' ? aa(val)(cb) :
 		val instanceof Error ? cb(val) :
 		cb(null, val);
 }
@@ -174,10 +202,10 @@ function objcb(obj, cb) {
 }
 
 //================================================================================
-function all(arr, cb) {
-	return Thunk(function (cb) {
-		(arr.constructor === Array ? arrcb : objcb)(arr, cb);
-	}, cb);
+function all(arr, cbOpts) {
+	return Thunk(function (thunk) {
+		(arr.constructor === Array ? arrcb : objcb)(arr, thunk);
+	}, cbOpts);
 }
 
 function racecb(arr, cb) {
@@ -194,41 +222,42 @@ function racecb(arr, cb) {
 }
 
 function raceobjcb(obj, cb) {
-	var end = false;
-	var keys = Object.keys(obj);
+	var keys = Object.keys(obj), end = false;
 	keys.forEach(function (i) {
 		valcb(obj[i], function (err, val) {
 			if (end) return;
 			if (arguments.length === 1 && !(err instanceof Error))
 				val = err, err = null;
-			if (err) return n = 0, cb(err);
 			end = true;
 			err ? cb(err) : cb(null, val);
 		});
 	});
 }
 
-function race(arr, cb) {
-	return Thunk(function (cb) {
-		(arr.constructor === Array ? racecb : raceobjcb)(arr, cb);
-	}, cb);
+function race(arr, cbOpts) {
+	return Thunk(function (thunk) {
+		(arr.constructor === Array ? racecb : raceobjcb)(arr, thunk);
+	}, cbOpts);
 }
 
 //================================================================================
 function Channel() {
-	var recvs = [], sends = [];
-	return channel;
-
-	function channel(first, val) {
-		var args = arguments;
-		if (typeof first === 'function')
-			recvs.push(first);
-		else {
-			if (arguments.length === 1 && !(first instanceof Error))
-				args = [null, first];
-			sends.push(args);
-		}
-		while (sends.length > 0 && recvs.length > 0)
-			recvs.shift().apply(null, sends.shift());
+	var list = [], args = [], ctx = this;
+	return function channel(cb) {
+		if (typeof cb === 'function')
+			list.push(cb);
+		else args.push(normalizeArgs(arguments));
+		while (args.length > 0 && list.length > 0)
+			list.shift().apply(ctx, args.shift());
 	}
 }
+
+//================================================================================
+function wait(msec, val, cbOpts) {
+	return Thunk(function (thunk) {
+		if (msec < 0) setTimeout(thunk, 0, new Error('msec must be plus or zero'));
+		else setTimeout(thunk, msec, null, val);
+	}, cbOpts);
+}
+
+})(Function('return this')());

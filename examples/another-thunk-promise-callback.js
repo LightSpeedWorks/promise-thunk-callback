@@ -1,3 +1,6 @@
+(function () {
+'use strict';
+
 (function (g) {
 'use strict';
 
@@ -17,11 +20,12 @@ Thunk.reject = reject;
 Thunk.Channel = Channel;
 Thunk.wait = wait;
 
-var nextTickDo = typeof setImmediate === 'function' ? setImmediate :
-	function nextTick(cb) { setTimeout(cb, 0); };
+var nextTickDo = typeof process === 'object' && process &&
+	typeof process.nextTick === 'function' ? process.nextTick :
+	typeof setImmediate === 'function' ? setImmediate :
+	function nextTickDo(cb) { setTimeout(cb, 0); };
 
-var tasksInProgress = false;
-var tasksQueue = [];
+var tasksInProgress = false, tasksQueue = [];
 function nextTick() {
 	tasksQueue.push(arguments);
 	if (tasksInProgress) return;
@@ -29,8 +33,9 @@ function nextTick() {
 	nextTickDo(tasksExecutor);
 }
 function tasksExecutor() {
+	tasksInProgress = true;
 	var args;
-	while (args = tasksQueue.shift()) args[0](args[1]);
+	while (args = tasksQueue.shift()) args[0](args[1], args[2]);
 	tasksInProgress = false;
 }
 
@@ -73,8 +78,6 @@ function Thunk(setup, cbOpts) {
 					else if (arguments.length > 2)
 						val = slice.call(arguments, 1);
 					try { return valcb(callback(err, val), thunk); }
-					// try { return valcb(callback.apply(null,
-					//	normalizeArgs(arguments)), thunk); }
 					catch (err) { return thunk(err); }
 				});
 				if (args) nextTick(fire);
@@ -93,7 +96,14 @@ function Thunk(setup, cbOpts) {
 		//			console.log('resolved twice:', args2[1], args[1]);
 		//}
 
-		if (!args) args = arguments; //normalizeArgs(arguments);
+		// if (!args) args = normalizeArgs(arguments);
+		if (!args) {
+			args = arguments;
+			if (arguments.length === 1)
+				callback instanceof Error || (args = [null, callback]);
+			else if (arguments.length > 2)
+				args = [callback, slice.call(arguments, 1)];
+		}
 		return list.length > 0 ? void nextTick(fire) : void 0;
 	} // thunk
 
@@ -112,25 +122,16 @@ function normalizeArgs(args) {
 		case 0: case 2: return args;
 		case 1: return args[0] instanceof Error ? args : [null, args[0]];
 		case 3: return [args[0], [args[1], args[2]]];
-		default: return [args[0]].concat(slice.call(args, 1));
+		default: return [args[0], slice.call(args, 1)];
 	}
 }
 
-// function normalizeCb(cb) {
-//	return function () { return cb.apply(null, normalizeArgs(arguments)); };
-// }
 function normalizeCb(cb) {
 	return function (err, val) {
 		if (arguments.length === 1)
 			err instanceof Error || (val = err, err = null);
 		else if (arguments.length > 2)
 			val = slice.call(arguments, 1);
-		// switch (arguments.length) {
-		//	case 0: case 2: break;
-		//	case 1: err instanceof Error || (val = err, err = null); break;
-		//	case 3: val = [val, next]; break;
-		//	default: val = slice.call(arguments, 1); break;
-		// }
 		return cb(err, val);
 	};
 }
@@ -141,7 +142,7 @@ function caught(rejected) {
 		self(function (err, val) {
 			try { return valcb(err ?
 				rejected ? rejected(err) : err : val, cb);
-			} catch (e) { return cb(e); }
+			} catch (err) { return cb(err); }
 		});
 	}, {immediate: true});
 }
@@ -153,7 +154,7 @@ function then(resolved, rejected) {
 			try { return valcb(err ?
 				rejected ? rejected(err) : err :
 				resolved ? resolved(val) : val, cb);
-			} catch (e) { return cb(e); }
+			} catch (err) { return cb(err); }
 		});
 	}, {immediate: true});
 }
@@ -175,31 +176,35 @@ function aa(gtor, cbOpts) {
 		function (callback) { valcb(gtor, callback); } :
 		function (callback) {
 			return function cb(err, val) {
-				// var args = normalizeArgs(arguments), err = args[0], val = args[1];
 				if (arguments.length === 1)
 					err instanceof Error || (val = err, err = null);
 				else if (arguments.length > 2)
 					val = slice.call(arguments, 1);
-				// if (arguments.length === 1 && !(err instanceof Error))
-				//	val = err, err = null;
 				try { var obj = err ? gtor.throw(err) : gtor.next(val);
 				} catch (err) { return callback(err); }
 				val = obj.value;
 				return obj.done ? valcb(val, callback) :
-					val && val.constructor === Array ? arrcb(val, cb) :
-					val && val.constructor === Object ? objcb(val, cb) :
-					valcb(val, cb);
+					typeof val === 'function' ? nextTick(val, cb) :
+					typeof val === 'object' && val ? (
+						typeof val.then === 'function' ?
+							val.then(function (v) { return valcb(v, cb); }, cb) :
+						typeof val.next === 'function' ? aa(val, cb) :
+						val.constructor === Array ? arrcb(val, cb) :
+						val.constructor === Object ? objcb(val, cb) :
+						val instanceof Error ? nextTick(cb, val) :
+						nextTick(cb, null, val)
+					) :
+					nextTick(cb, null, val);
 			} ();
 		}, cbOpts);
 }
 
 function valcb(val, cb) {
-	// cb = normalizeCb(cb);
 	return !val ? cb(null, val) :
 		typeof val === 'function' ? nextTick(val, cb) :
 		typeof val.then === 'function' ?
 			val.then(function (v) { return valcb(v, cb); }, cb) :
-		typeof val.next === 'function' ? aa(val)(cb) :
+		typeof val.next === 'function' ? aa(val, cb) :
 		val instanceof Error ? cb(val) :
 		cb(null, val);
 }
@@ -213,9 +218,6 @@ function arrcb(arr, cb) {
 				err instanceof Error || (val = err, err = null);
 			else if (arguments.length > 2)
 				val = slice.call(arguments, 1);
-			// var args = normalizeArgs(arguments), err = args[0], val = args[1];
-			// if (arguments.length === 1 && !(err instanceof Error))
-			//	val = err, err = null;
 			if (err) return n = 0, cb(err);
 			res[i] = val;
 			if (--n === 0) cb(null, res);
@@ -233,9 +235,6 @@ function objcb(obj, cb) {
 				err instanceof Error || (val = err, err = null);
 			else if (arguments.length > 2)
 				val = slice.call(arguments, 1);
-			// var args = normalizeArgs(arguments), err = args[0], val = args[1];
-			// if (arguments.length === 1 && !(err instanceof Error))
-			//	val = err, err = null;
 			if (err) return n = 0, cb(err);
 			res[i] = val;
 			if (--n === 0) cb(null, res);
@@ -259,9 +258,6 @@ function racecb(arr, cb) {
 				err instanceof Error || (val = err, err = null);
 			else if (arguments.length > 2)
 				val = slice.call(arguments, 1);
-			// var args = normalizeArgs(arguments), err = args[0], val = args[1];
-			// if (arguments.length === 1 && !(err instanceof Error))
-			//	val = err, err = null;
 			end = true;
 			err ? cb(err) : cb(null, val);
 		});
@@ -277,9 +273,6 @@ function raceobjcb(obj, cb) {
 				err instanceof Error || (val = err, err = null);
 			else if (arguments.length > 2)
 				val = slice.call(arguments, 1);
-			// var args = normalizeArgs(arguments), err = args[0], val = args[1];
-			// if (arguments.length === 1 && !(err instanceof Error))
-			//	val = err, err = null;
 			end = true;
 			err ? cb(err) : cb(null, val);
 		});
@@ -294,13 +287,21 @@ function race(arr, cbOpts) {
 
 //================================================================================
 function Channel() {
-	var list = [], args = [], ctx = this;
+	var list = [], values = [], ctx = this;
 	return function channel(cb) {
 		if (typeof cb === 'function')
 			list.push(cb);
-		else args.push(normalizeArgs(arguments));
-		while (args.length > 0 && list.length > 0)
-			list.shift().apply(ctx, args.shift());
+		else {
+			var args = arguments;
+			if (arguments.length === 1)
+				cb instanceof Error || (args = [null, cb]);
+			else if (arguments.length > 2)
+				args = [cb, slice.call(arguments, 1)];
+			values.push(args);
+			// values.push(normalizeArgs(arguments));
+		}
+		while (values.length > 0 && list.length > 0)
+			list.shift().apply(ctx, values.shift());
 	}
 }
 
@@ -420,11 +421,11 @@ var y = 10;
 console.log('@y' + ++y + ' y11'), a(y === 11, 'y11');
 Thunk.resolve(true)
 .then(val => (console.log('@y' + ++y + ' y14  ' + val), a(y === 14, 'y14')),
-      err => (console.log('@y' + ++y + ' y14e ' + err), a((y = -14), F)))
+      err => (console.log('@y' + ++y + ' y14e ' + err), a((y = -14, F))))
 .catch(err => console.error('@y' + x + ' y14z ' + (err.stack || err + '')));
 console.log('@y' + ++y + ' y12'), a(y === 12, 'y12');
 Thunk.reject(new Error('always error'))
-.then(val => (console.log('@y' + ++y + ' y15  ' + val), a((y = -15), F)),
+.then(val => (console.log('@y' + ++y + ' y15  ' + val), a((y = -15, F))),
       err => (console.log('@y' + ++y + ' y15e ' + err), a(y === 15, 'y15')))
 .catch(err => console.error('@y' + x + ' y15z ' + (err.stack || err + '')));
 console.log('@y' + ++y + ' y13'), a(y === 13, 'y13');
@@ -433,11 +434,11 @@ var z = 10;
 console.log('@z' + ++z + ' z11'), a(z === 11, 'z11');
 Thunk(function (res, rej) { res(true); })
 .then(val => (console.log('@z' + ++z + ' z14  ' + val), a(z === 14, 'z14')),
-      err => (console.log('@z' + ++z + ' z14e ' + err), a((z = -14), F)))
+      err => (console.log('@z' + ++z + ' z14e ' + err), a((z = -14, F))))
 .catch(err => console.error('@z' + x + ' z14z ' + (err.stack || err + '')));
 console.log('@z' + ++z + ' z12'), a(z === 12, 'z12');
 Thunk(function (res, rej) { rej(new Error('always error')); })
-.then(val => (console.log('@z' + ++z + ' z15  ' + val), a((z = -15), F)),
+.then(val => (console.log('@z' + ++z + ' z15  ' + val), a((z = -15, F))),
       err => (console.log('@z' + ++z + ' z15e ' + err), a(z === 15, 'z15')))
 .catch(err => console.error('@z' + x + ' z15z ' + (err.stack || err + '')));
 console.log('@z' + ++z + ' z13'), a(z === 13, 'z13');
@@ -446,27 +447,14 @@ var w = 10;
 console.log('@w' + ++w + ' w11'), a(w === 11, 'w11');
 Thunk(function (res, rej) { res(true); })
 .then(val => (console.log('@w' + ++w + ' w14  ' + val), a(w === 14, 'w14')),
-      err => (console.log('@w' + ++w + ' w14e ' + err), a((w = -14), F)))
+      err => (console.log('@w' + ++w + ' w14e ' + err), a((w = -14, F))))
 .catch(err => console.error('@w' + x + ' w14z ' + (err.stack || err + '')));
 console.log('@w' + ++w + ' w12'), a(w === 12, 'w12');
 Thunk(function (res, rej) { rej(new Error('always error')); })
-.then(val => (console.log('@w' + ++w + ' w15  ' + val), a((w = -15), F)),
+.then(val => (console.log('@w' + ++w + ' w15  ' + val), a((w = -15, F))),
       err => (console.log('@w' + ++w + ' w15e ' + err), a(w === 15, 'w15')))
 .catch(err => console.error('@w' + x + ' w15z ' + (err.stack || err + '')));
 console.log('@w' + ++w + ' w13'), a(w === 13, 'w13');
-/*
-console.log('@w' + ++w + ' w11'), a(w === 11, 'w11');
-Thunk(function (res, rej) { res(true); })
-.then(val => (console.log('@w' + ++w + ' w12  ' + val), a(w === 12, 'w12')),
-      err => (console.log('@w' + ++w + ' w12e ' + err), a((w = -12), F)))
-.catch(err => console.error('@w' + x + ' w12z ' + (err.stack || err + '')));
-console.log('@w' + ++w + ' w13'), a(w === 13, 'w13');
-Thunk(function (res, rej) { rej(new Error('always error')); })
-.then(val => (console.log('@w' + ++w + ' w14  ' + val), a((w = -14), F)),
-      err => (console.log('@w' + ++w + ' w14e ' + err), a(w === 14, 'w14')))
-.catch(err => console.error('@w' + x + ' w14z ' + (err.stack || err + '')));
-console.log('@w' + ++w + ' w15'), a(w === 15, 'w15');
-*/
 
 aa(function *() {
 	yield wait(5000);
@@ -511,13 +499,15 @@ function benchcb(name, bench, cb) {
 }
 
 const N = 5e4;
-function bench1(cb) {
-	var p = Promise.resolve(0);
-	for (var i = 0; i < N; ++i)
-		p = p.then(function (val) { return Promise.resolve(0); });
-	p.then(val => cb(null, val), err => cb(err));
+const NNN = 1e2;
+function bench0(cb) {
+	aa(function *() {
+		for (var i = 0; i < N; ++i)
+			yield i;
+		return 0;
+	}, cb);
 }
-function bench2(cb) {
+function bench1(cb) {
 	aa(function *() {
 		var p = cb => cb(null, 0);
 		for (var i = 0; i < N; ++i)
@@ -525,31 +515,86 @@ function bench2(cb) {
 		return 0;
 	}, cb);
 }
+function bench2(cb) {
+	try {
+		var p = Promise.resolve(0);
+		for (var i = 0; i < N; ++i)
+			p = p.then(function (val) { return Promise.resolve(0); });
+		p.then(val => cb(null, val), err => cb(err));
+	} catch (err) { cb(err); }
+}
 function bench3(cb) {
-	var p = Thunk(function (cb) { cb(0); });
-	for (var i = 0; i < N; ++i)
-		p = p(function (err, val) {
-			return Thunk(function (cb) { cb(0); });
-		});
-	p(cb);
+	try {
+		var p = Thunk(function (cb) { cb(null, 0); });
+		for (var i = 0; i < N; ++i)
+			p = p(function (err, val) {
+				return Thunk(function (cb) { cb(null, 0); });
+			});
+		p(cb);
+	} catch (err) { cb(err); }
 }
 function bench4(cb) {
-	var p = Thunk.resolve(0);
-	for (var i = 0; i < N; ++i)
-		p = p.then(function (val) {
-			return Thunk.resolve(0);
-		});
-	p.then(val => cb(null, val), err => cb(err));
+	try {
+		var p = Thunk.resolve(0);
+		for (var i = 0; i < N; ++i)
+			p = p.then(function (val) {
+				return Thunk.resolve(0);
+			});
+		p.then(val => cb(null, val), err => cb(err));
+	} catch (err) { cb(err); }
+}
+function bench5(cb) {
+	aa(function *() {
+		var SetImmediate = typeof setImmediate === 'function' ? setImmediate :
+			function SetImmediate(cb) { setTimeout(cb, 0); };
+		for (var i = 0; i < NNN; ++i)
+			yield cb => SetImmediate(cb);
+			// yield wait(0);
+		return 0;
+	}, cb);
+}
+function bench6(cb) {
+	aa(function *() {
+		var processNextTick = typeof process === 'object' && process &&
+			typeof process.nextTick === 'function' ? process.nextTick :
+			typeof setImmediate === 'function' ? setImmediate :
+			function processNextTick(cb) { setTimeout(cb, 0); };
+		for (var i = 0; i < NNN; ++i)
+			yield cb => processNextTick(cb);
+		return 0;
+	}, cb);
 }
 aa(function *() {
-	yield wait(7000);
+	yield wait(8000);
+	console.log(yield cb => benchcb('0:Primitives', bench0, cb));
+	console.log(yield cb => benchcb('1:Callback', bench1, cb));
+	console.log(yield cb => benchcb('2:NativePromise', bench2, cb));
+	console.log(yield cb => benchcb('3:ThunkSync', bench3, cb));
+	console.log(yield cb => benchcb('4:ThunkAsync', bench4, cb));
+	console.log(yield cb => benchcb('5:setImmediate', bench5, cb));
+	console.log(yield cb => benchcb('6:process.nextTick', bench6, cb));
 	console.log('Benchmark start');
 	for (var i = 0; i < 20; ++i) {
 		console.log(
-			yield cb => benchcb('1:NativePromise', bench1, cb),
-			yield cb => benchcb('2:Callback', bench2, cb),
+			yield cb => benchcb('0:Primitives', bench0, cb),
+			yield cb => benchcb('1:Callback', bench1, cb),
+			yield cb => benchcb('2:NativePromise', bench2, cb),
 			yield cb => benchcb('3:ThunkSync', bench3, cb),
-			yield cb => benchcb('4:ThunkAsync', bench4, cb));
+			yield cb => benchcb('4:ThunkAsync', bench4, cb),
+			yield cb => benchcb('5:setImmediate', bench5, cb),
+			yield cb => benchcb('6:process.nextTick', bench6, cb));
 	}
 	console.log('Benchmark end');
 }, err => err && console.error(err));
+
+aa(function *() {
+	yield wait(7000);
+	console.log('Primitive values start');
+	for (var i = 0; i <= 5e4; ++i) {
+		if (i % 5000 === 0) console.log('Primitive values:', i);
+		if (i !== (yield i)) console.log('eh!?', i);
+	}
+	console.log('Primitive values works');
+}, err => err && console.error(err));
+
+})();

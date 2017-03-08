@@ -49,6 +49,10 @@
 	setValue(Thunk, 'reject', reject);
 	setValue(Thunk, 'Channel', Channel);
 	setValue(Thunk, 'wait', wait);
+	setValue(Thunk, 'isIterable', isIterable);
+	setValue(Thunk, 'isIterator', isIterator);
+	setValue(Thunk, 'isPromise', isPromise);
+	setValue(Thunk, 'makeArrayFromIterator', makeArrayFromIterator);
 
 	var NNNN = 5000, nnnn = NNNN;
 	var PromiseResolveThen =
@@ -352,6 +356,45 @@
 			else setTimeout(cb, msec, null, val);
 		}, cbOpts);
 	}
+
+	//================================================================================
+	// isPromise(p)
+	function isPromise(p) {
+		return (typeof p === 'object' && !!p || typeof p === 'function') &&
+			typeof p.then === 'function';
+	}
+
+	// isIterator(iter)
+	function isIterator(iter) {
+		return typeof iter === 'object' && !!iter &&
+			(typeof iter.next === 'function' || isIterable(iter));
+	}
+
+	// isIterable(iter)
+	function isIterable(iter) {
+		return typeof iter === 'object' && !!iter &&
+			typeof Symbol === 'function' &&
+			!!Symbol.iterator &&
+			typeof iter[Symbol.iterator] === 'function';
+	}
+
+	// makeArrayFromIterator(iter or array)
+	function makeArrayFromIterator(iter) {
+		if (iter instanceof Array) return iter;
+		if (!isIterator(iter)) return [iter];
+		if (isIterable(iter)) iter = iter[Symbol.iterator]();
+		var array = [];
+		try {
+			for (;;) {
+				var val = iter.next();
+				if (val && val.hasOwnProperty('done') && val.done) return array;
+				if (val && val.hasOwnProperty('value')) val = val.value;
+				array.push(val);
+			}
+		} catch (error) {
+			return array;
+		}
+	} // makeArrayFromIterator
 
 	})(Function('return this')());
 

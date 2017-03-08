@@ -69,19 +69,37 @@
 		typeof setImmediate === 'function' ? setImmediate :
 		function nextTickDo(cb) { setTimeout(cb, 0); };
 
-	var tasksInProgress = false, tasksQueue = [];
-	function nextTick() {
-		tasksQueue.push(arguments);
-		if (tasksInProgress) return;
-		tasksInProgress = true;
-		nextTickDo(tasksExecutor);
-	}
-	function tasksExecutor() {
-		tasksInProgress = true;
-		var args;
-		while (args = tasksQueue.shift()) args[0](args[1], args[2]);
-		tasksInProgress = false;
-	}
+	// nextExec(fn, arg0, arg1)
+	var nextExec = function () {
+		// tasks {head, tail}
+		var tasks = {head:null, tail:null};
+		var progress = false;
+
+		// nextExec(ctx, fn)
+		function nextExec(fn, arg0, arg1) {
+			var task = {fn:fn, arg0:arg0, arg1:arg1, chain:null};
+			tasks.tail = tasks.tail ? (tasks.tail.chain = task) : (tasks.head = task);
+
+			if (progress) return;
+			progress = true;
+			nextTickDo(nextTickExec);
+		}
+
+		function nextTickExec() {
+			var task;
+			while (task = tasks.head) {
+				tasks.head = task.chain;
+				task.chain = null;
+				if (!tasks.head) tasks.tail = null;
+
+				var fn = task.fn;
+				fn(task.arg0, task.arg1);
+			}
+			progress = false;
+		}
+
+		return nextExec;
+	}(); // nextExec
 
 	var slice = [].slice;
 
@@ -124,7 +142,7 @@
 						try { return valcb(callback(err, val), thunk); }
 						catch (err) { return thunk(err); }
 					});
-					if (args) nextTick(fire);
+					if (args) nextExec(fire);
 				}, {immediate: true});
 			}
 
@@ -148,7 +166,7 @@
 				else if (arguments.length > 2)
 					args = [callback, slice.call(arguments, 1)];
 			}
-			return list.length > 0 ? void nextTick(fire) : void 0;
+			return list.length > 0 ? nextExec(fire) : void 0;
 		} // thunk
 
 		function fire() {
@@ -228,24 +246,24 @@
 					} catch (err) { return callback(err); }
 					val = obj.value;
 					return obj.done ? valcb(val, callback) :
-						typeof val === 'function' ? nextTick(val, cb) :
+						typeof val === 'function' ? nextExec(val, cb) :
 						typeof val === 'object' && val ? (
 							typeof val.then === 'function' ?
 								val.then(function (v) { return valcb(v, cb); }, cb) :
 							typeof val.next === 'function' ? aa(val, cb) :
 							val.constructor === Array ? arrcb(val, cb) :
 							val.constructor === Object ? objcb(val, cb) :
-							val instanceof Error ? nextTick(cb, val) :
-							nextTick(cb, null, val)
+							val instanceof Error ? nextExec(cb, val) :
+							nextExec(cb, null, val)
 						) :
-						nextTick(cb, null, val);
+						nextExec(cb, null, val);
 				} ();
 			}, cbOpts);
 	}
 
 	function valcb(val, cb) {
 		return !val ? cb(null, val) :
-			typeof val === 'function' ? nextTick(val, cb) :
+			typeof val === 'function' ? nextExec(val, cb) :
 			typeof val.then === 'function' ?
 				val.then(function (v) { return valcb(v, cb); }, cb) :
 			typeof val.next === 'function' ? aa(val, cb) :
@@ -407,16 +425,16 @@
 		var pending = true, err, val, list = [];
 		this.$push = function () {
 			list.push(arguments);
-			if (!pending) nextTick(fire);
+			if (!pending) nextExec(fire);
 		};
 		setup(resolve, reject); // throws
 		function resolve(v) {
 			if (pending) val = v, pending = false;
-			nextTick(fire);
+			nextExec(fire);
 		}
 		function reject(e) {
 			if (pending) err = e, pending = false;
-			nextTick(fire);
+			nextExec(fire);
 		}
 		function fire() {
 			if (pending) return;

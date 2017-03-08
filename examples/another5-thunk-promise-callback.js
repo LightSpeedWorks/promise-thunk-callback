@@ -4,15 +4,6 @@
 (function (g) {
 'use strict';
 
-var NNNN = 5000, nnnn = NNNN;
-var PromiseResolveThen =
-	typeof Promise === 'function' && Promise &&
-	typeof Promise.resolve === 'function' ?
-	function PromiseResolveThen(cb) {
-		--nnnn < 0 ? (nnnn = NNNN, setTimeout(cb, 0)) :
-		Promise.resolve(void 0).then(cb);
-	} : null;
-
 // Unified Thunk! Thunk with Promise and Callback!
 // thunk === promise === callback!
 
@@ -28,6 +19,15 @@ Thunk.resolve = resolve;
 Thunk.reject = reject;
 Thunk.Channel = Channel;
 Thunk.wait = wait;
+
+var NNNN = 5000, nnnn = NNNN;
+var PromiseResolveThen =
+	typeof Promise === 'function' && Promise &&
+	typeof Promise.resolve === 'function' ?
+	function PromiseResolveThen(cb) {
+		--nnnn < 0 ? (nnnn = NNNN, setTimeout(cb, 0)) :
+		Promise.resolve(void 0).then(cb);
+	} : null;
 
 var nextTickDo = typeof process === 'object' && process &&
 	typeof process.nextTick === 'function' ? process.nextTick :
@@ -53,7 +53,7 @@ var slice = [].slice;
 
 //================================================================================
 function Thunk(setup, cbOpts) {
-	var list = typeof cbOpts === 'function' ? [normalizeCb(cbOpts)] : [];
+	var list = typeof cbOpts === 'function' ? [cbOpts] : [];
 	var args = null, notYetSetup = true;
 	var result = undefined, notYetResult = true;
 

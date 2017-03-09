@@ -10,6 +10,49 @@
 	if (typeof module === 'object' && module && module.exports)
 		module.exports = Thunk;
 
+	var hasConsole = typeof console === 'object' && console !== null;
+	var hasConsoleWarn  = hasConsole && typeof console.warn  === 'function';
+	var hasConsoleError = hasConsole && typeof console.error === 'function';
+
+	// var COLOR_ERROR  = typeof window !== 'undefined' ? '' : '\x1b[35m';
+	// var COLOR_NORMAL = typeof window !== 'undefined' ? '' : '\x1b[m';
+
+	// Object.keys for ie8
+	if (!Object.keys)
+		Object.keys = function keys(obj) {
+			var props = [];
+			for (var prop in obj)
+				if (obj.hasOwnProperty(prop))
+					props.push(prop);
+			return props;
+		},
+		hasConsoleWarn && console.warn('Undefined: Object.keys');
+
+	// Object.getOwnPropertyNames for ie8
+	if (!Object.getOwnPropertyNames)
+		Object.getOwnPropertyNames = Object.keys,
+		hasConsoleWarn && console.warn('Undefined: Object.getOwnPropertyNames');
+
+	// Array.prototype.reduce for ie8
+	if (!Array.prototype.reduce)
+		Array.prototype.reduce = function reduce(fn, val) {
+			var i = 0;
+			if (arguments.length <= 1) val = this[i++];
+			for (var n = this.length; i < n; ++i)
+				val = fn(val, this[i], i, this);
+			return val;
+		},
+		hasConsoleWarn && console.warn('Undefined: Array.prototype.reduce');
+
+	var COLORS = {red: '31', green: '32', purple: '35', cyan: '36', yellow: '33'};
+	var colors = Object.keys(COLORS).reduce(function (obj, k) {
+		obj[k] = typeof window === 'object' ? function (x) { return x; } :
+			function (x) { return '\x1b[' + COLORS[k] + 'm' + x + '\x1b[m'; };
+		return obj;
+	}, {});
+
+	function errmsg(err) { return err.stack || err; }
+
 	// defProp(obj, prop, propDesc)
 	var defProp = function (obj) {
 		if (!Object.defineProperty) return null;
@@ -19,18 +62,19 @@
 		} catch (err) { return null; }
 	} ({});
 
-	// setConst(obj, prop, val)
-	var setConst = defProp ?
-		function setConst(obj, prop, val) {
-			defProp(obj, prop, {value: val}); } :
-		function setConst(obj, prop, val) { obj[prop] = val; };
-
 	// setValue(obj, prop, val)
 	var setValue = defProp ?
 		function setValue(obj, prop, val) {
 			defProp(obj, prop, {value: val,
 				writable: true, configurable: true}); } :
 		function setValue(obj, prop, val) { obj[prop] = val; };
+
+	/*
+	// setConst(obj, prop, val)
+	var setConst = defProp ?
+		function setConst(obj, prop, val) {
+			defProp(obj, prop, {value: val}); } :
+		function setConst(obj, prop, val) { obj[prop] = val; };
 
 	// getProto(obj)
 	var getProto = Object.getPrototypeOf ||
@@ -39,6 +83,7 @@
 	// setProto(obj, proto)
 	var setProto = Object.setPrototypeOf ||
 		function setProto(obj, proto) { obj.__proto__ = proto; };
+	//*/
 
 	g.Thunk = Thunk;
 
@@ -47,22 +92,32 @@
 	setValue(Thunk, 'race', race);
 	setValue(Thunk, 'resolve', resolve);
 	setValue(Thunk, 'reject', reject);
+	setValue(Thunk, 'accept', resolve);
+	setValue(Thunk, 'Thunk', Thunk);
+	setValue(Thunk, 'Promise', Thunk);
 	setValue(Thunk, 'Channel', Channel);
 	setValue(Thunk, 'wait', wait);
 	setValue(Thunk, 'isIterable', isIterable);
 	setValue(Thunk, 'isIterator', isIterator);
 	setValue(Thunk, 'isPromise', isPromise);
 	setValue(Thunk, 'makeArrayFromIterator', makeArrayFromIterator);
+	setValue(Thunk, 'promisify', thunkify);
+	setValue(Thunk, 'thunkify', thunkify);
+	setValue(Thunk, 'promisifyAll', thunkifyAll);
+	setValue(Thunk, 'thunkifyAll', thunkifyAll);
 
-	var NNNN = 5000, nnnn = NNNN;
-	var PromiseResolveThen =
-		typeof Promise === 'function' && Promise &&
-		typeof Promise.resolve === 'function' ?
-		function PromiseResolveThen(cb) {
-			--nnnn < 0 ? (nnnn = NNNN, setTimeout(cb, 0)) :
-			Promise.resolve(void 0).then(cb);
-		} : null;
+	// PromiseResolveThen(fn)
+	var PromiseResolveThen = function (N) {
+		var n = N;
+		return typeof Promise === 'function' && Promise &&
+			typeof Promise.resolve === 'function' ?
+			function PromiseResolveThen(cb) {
+				--n < 0 ? (n = N, setTimeout(cb, 0)) :
+				Promise.resolve(void 0).then(cb);
+			} : null;
+	} (5000);
 
+	// nextTickDo(fn)
 	var nextTickDo = typeof process === 'object' && process &&
 		typeof process.nextTick === 'function' ? process.nextTick :
 		PromiseResolveThen ? PromiseResolveThen :
@@ -70,10 +125,8 @@
 		function nextTickDo(cb) { setTimeout(cb, 0); };
 
 	// nextExec(fn, arg0, arg1)
-	var nextExec = function () {
+	var nextExec = function (tasks, progress) {
 		// tasks {head, tail}
-		var tasks = {head:null, tail:null};
-		var progress = false;
 
 		// nextExec(ctx, fn)
 		function nextExec(fn, arg0, arg1) {
@@ -99,29 +152,30 @@
 		}
 
 		return nextExec;
-	}(); // nextExec
+	}({head:null, tail:null}, false); // nextExec
 
 	var slice = [].slice;
 
 	//================================================================================
-	function Thunk(setup, cbOpts) {
+	// Thunk(setup: Function | undefined, cbOpts: Function | Options): Thunk | Promise
+	function Thunk(setup, cbOpts, args) {
 		var list = typeof cbOpts === 'function' ? [cbOpts] : [];
-		var args = null, notYetSetup = true;
+		var notYetSetup = true;
 		var result = undefined, notYetResult = true;
 
+		thunk.constructor = Thunk;
 		thunk.then = then;
 		thunk['catch'] = caught;
 
 		if (typeof setup === 'function') {
 			if (typeof cbOpts === 'function') {
-				notYetSetup = false;
-				setup(thunk, thunk); // throws
+				try { notYetSetup = false; setup(thunk, thunk); }
+				catch (err) { thunk(err); }
 				return;
 			}
-			else if (cbOpts && cbOpts.immediate) {
-				notYetSetup = false;
-				setup(thunk, thunk); // throws
-			}
+			else if (cbOpts && cbOpts.immediate)
+				try { notYetSetup = false; setup(thunk, thunk); }
+				catch (err) { thunk(err); }
 		}
 
 		return thunk;
@@ -158,7 +212,6 @@
 			//			console.log('resolved twice:', args2[1], args[1]);
 			//}
 
-			// if (!args) args = normalizeArgs(arguments);
 			if (!args) {
 				args = arguments;
 				if (arguments.length === 1)
@@ -177,27 +230,9 @@
 			}
 			return result;
 		} // fire
-	}
+	} // Thunk
 
-	function normalizeArgs(args) {
-		switch (args.length) {
-			case 0: case 2: return args;
-			case 1: return args[0] instanceof Error ? args : [null, args[0]];
-			case 3: return [args[0], [args[1], args[2]]];
-			default: return [args[0], slice.call(args, 1)];
-		}
-	}
-
-	function normalizeCb(cb) {
-		return function (err, val) {
-			if (arguments.length === 1)
-				err instanceof Error || (val = err, err = null);
-			else if (arguments.length > 2)
-				val = slice.call(arguments, 1);
-			return cb(err, val);
-		};
-	}
-
+	// caught(resolved, rejected) : Thunk | Promise
 	function caught(rejected) {
 		var self = this;
 		return Thunk(function (cb) {
@@ -207,8 +242,9 @@
 				} catch (err) { return cb(err); }
 			});
 		}, {immediate: true});
-	}
+	} // caught | catch
 
+	// then(resolved, rejected) : Thunk | Promise
 	function then(resolved, rejected) {
 		var self = this;
 		return Thunk(function (cb) {
@@ -219,18 +255,48 @@
 				} catch (err) { return cb(err); }
 			});
 		}, {immediate: true});
-	}
+	} // then
+
+	/*
+	function normalizeArgs(args) {
+		switch (args.length) {
+			case 0: case 2: return args;
+			case 1: return args[0] instanceof Error ? args : [null, args[0]];
+			case 3: return [args[0], [args[1], args[2]]];
+			default: return [args[0], slice.call(args, 1)];
+		}
+	} // normalizeArgs
+
+	function normalizeCb(cb) {
+		return function (err, val) {
+			if (arguments.length === 1)
+				err instanceof Error || (val = err, err = null);
+			else if (arguments.length > 2)
+				val = slice.call(arguments, 1);
+			return cb(err, val);
+		};
+	} // normalizeCb
+	//*/
 
 	//================================================================================
+	// resolve(val: Thunk | Promise | any) : Thunk | Promise
 	function resolve(val) {
-		return Thunk(function (cb) { valcb(val, cb); });
+		return typeof val === 'string' ||
+			typeof val === 'number' ||
+			typeof val === 'boolean' ||
+			val === undefined || val === null ?
+				Thunk(undefined, undefined, [null, val]) :
+				Thunk(function (cb) { valcb(val, cb); });
 	}
 
+	// reject(err: Error) : Thunk | Promise
 	function reject(err) {
-		return Thunk(function (cb) { cb(err); });
+		return Thunk(undefined, undefined, [err]);
+		// return Thunk(function (cb) { cb(err); });
 	}
 
 	//================================================================================
+	// aa(gtor: Generator, cbOpts: Function | Options): Thunk | Promise
 	function aa(gtor, cbOpts) {
 		if (typeof gtor === 'function') gtor = gtor();
 
@@ -259,19 +325,25 @@
 						nextExec(cb, null, val);
 				} ();
 			}, cbOpts);
-	}
+	} // aa
 
+	// valcb(val: any, cb: Function) : any
 	function valcb(val, cb) {
-		return !val ? cb(null, val) :
+		return typeof val === 'string' ||
+			typeof val === 'number' ||
+			typeof val === 'boolean' ||
+			val === undefined || val === null ? cb(null, val) :
 			typeof val === 'function' ? nextExec(val, cb) :
 			typeof val.then === 'function' ?
 				val.then(function (v) { return valcb(v, cb); }, cb) :
 			typeof val.next === 'function' ? aa(val, cb) :
 			val instanceof Error ? cb(val) :
 			cb(null, val);
-	}
+	} // valcb
 
+	// arrcb(arr: Array | Iterator, cb: Function): void
 	function arrcb(arr, cb) {
+		// TODO arr = makeArray...
 		var n = arr.length, res = new Array(n);
 		if (n === 0) return cb(null, arr);
 		arr.forEach(function (val, i) {
@@ -285,8 +357,9 @@
 				if (--n === 0) cb(null, res);
 			});
 		});
-	}
+	} // arrcb
 
+	// objcb(obj, cb): void
 	function objcb(obj, cb) {
 		var keys = Object.keys(obj), n = keys.length;
 		if (n === 0) return cb(null, obj);
@@ -302,14 +375,16 @@
 				if (--n === 0) cb(null, res);
 			});
 		});
-	}
+	} // objcb
 
 	//================================================================================
+	// all(arr: Array | Iterator, cbOpts: Function) : Thunk | Promise
 	function all(arr, cbOpts) {
+		// TODO arr = makeArray...
 		return Thunk(function (cb) {
 			(arr.constructor === Array ? arrcb : objcb)(arr, cb);
 		}, cbOpts);
-	}
+	} // all
 
 	function racecb(arr, cb) {
 		var end = false;
@@ -324,7 +399,7 @@
 				err ? cb(err) : cb(null, val);
 			});
 		});
-	}
+	} // racecb
 
 	function raceobjcb(obj, cb) {
 		var keys = Object.keys(obj), end = false;
@@ -339,17 +414,18 @@
 				err ? cb(err) : cb(null, val);
 			});
 		});
-	}
+	} // raceobjcb
 
 	function race(arr, cbOpts) {
 		return Thunk(function (cb) {
 			(arr.constructor === Array ? racecb : raceobjcb)(arr, cb);
 		}, cbOpts);
-	}
+	} // race
 
 	//================================================================================
+	// Channel() : Function
 	function Channel() {
-		var list = [], values = [], ctx = this;
+		var ctx = this, list = [], values = [];
 		return function channel(cb) {
 			if (typeof cb === 'function')
 				list.push(cb);
@@ -360,33 +436,34 @@
 				else if (arguments.length > 2)
 					args = [cb, slice.call(arguments, 1)];
 				values.push(args);
-				// values.push(normalizeArgs(arguments));
 			}
 			while (values.length > 0 && list.length > 0)
-				list.shift().apply(ctx, values.shift());
-		}
-	}
+				var r = list.shift().apply(ctx, values.shift());
+			return r;
+		}; // channel
+	} // Channel
 
 	//================================================================================
+	// wait(msec: number, val: any, cbOpts: Function | Options): Thunk | Promise
 	function wait(msec, val, cbOpts) {
 		return Thunk(function (cb) {
 			if (msec < 0) setTimeout(cb, 0, new Error('msec must be plus or zero'));
 			else setTimeout(cb, msec, null, val);
 		}, cbOpts);
-	}
+	} // wait
 
 	//================================================================================
 	// isPromise(p)
 	function isPromise(p) {
 		return (typeof p === 'object' && !!p || typeof p === 'function') &&
 			typeof p.then === 'function';
-	}
+	} // isPromise
 
 	// isIterator(iter)
 	function isIterator(iter) {
 		return typeof iter === 'object' && !!iter &&
 			(typeof iter.next === 'function' || isIterable(iter));
-	}
+	} // isIterator
 
 	// isIterable(iter)
 	function isIterable(iter) {
@@ -394,7 +471,7 @@
 			typeof Symbol === 'function' &&
 			!!Symbol.iterator &&
 			typeof iter[Symbol.iterator] === 'function';
-	}
+	} // isIterable
 
 	// makeArrayFromIterator(iter or array)
 	function makeArrayFromIterator(iter) {
@@ -414,9 +491,64 @@
 		}
 	} // makeArrayFromIterator
 
+	// thunkify(fn, [options])
+	function thunkify(fn, options) {
+		// thunkify(target: Object, method: string, [options: Object]) : undefined
+		if (fn && typeof fn === 'object' && options && typeof options === 'string') {
+			var object = fn, method = options, options = arguments[2];
+			var suffix = options && typeof options === 'string' ? options :
+				options && typeof options.suffix === 'string' ? options.suffix :
+				options && typeof options.postfix === 'string' ? options.postfix : 'Async';
+			var methodAsyncCached = method + suffix + 'Cached';
+			Object.defineProperty(object, method + suffix, {
+				get: function () {
+					return this.hasOwnProperty(methodAsyncCached) &&
+						typeof this[methodAsyncCached] === 'function' ? this[methodAsyncCached] :
+						(setValue(this, methodAsyncCached, thunkify(this, this[method])), this[methodAsyncCached]);
+				},
+				configurable: true
+			});
+			return;
+		}
+
+		// thunkify([ctx: Object,] fn: Function) : Function
+		var ctx = typeof this !== 'function' ? this : undefined;
+		if (typeof options === 'function') ctx = fn, fn = options, options = arguments[2];
+		if (options && options.context) ctx = options.context;
+		if (typeof fn !== 'function')
+			throw new TypeError('thunkify: argument must be a function');
+
+		// thunkified, promisified
+		thunkified.thunkified = thunkified.promisified = true;
+		return thunkified;
+		function thunkified() {
+			var args = arguments;
+			return Thunk(function (cb) {
+				args[args.length++] = cb;
+				fn.apply(ctx, args);
+			});
+		} // thunkified
+	} // thunkify
+
+	// thunkifyAll(object, options)
+	function thunkifyAll(object, options) {
+		var keys = [];
+		if (Object.getOwnPropertyNames) keys = Object.getOwnPropertyNames(object);
+		else if (Object.keys) keys = Object.keys(object);
+		else for (var method in object) if (object.hasOwnProperty(method)) keys.push(i);
+
+		keys.forEach(function (method) {
+			if (typeof object[method] === 'function' &&
+					!object[method].promisified &&
+					!object[method].thunkified)
+				thunkify(object, method, options);
+		});
+		return object;
+	} // thunkifyAll
+
 	})(Function('return this')());
 
-	const {aa, wait, Channel} = Thunk;
+	const {aa, wait, Channel, thunkify, promisify, thunkifyAll, promisifyAll} = Thunk;
 
 	// DELETE FROM HERE
 	//================================================================================
@@ -557,6 +689,7 @@
 	.catch(err => console.error('@w' + x + ' w15z ' + (err.stack || err + '')));
 	console.log('@w' + ++w + ' w13'), a(w === 13, 'w13');
 
+	//================================================================================
 	aa(function *() {
 		yield wait(5000);
 		console.log('Channel start');
@@ -589,6 +722,62 @@
 		console.log('Thunk works');
 	}, err => err && console.error(err));
 
+	aa(function *() {
+		yield wait(7000);
+		console.log('Primitive values start');
+		for (var i = 0; i <= 5e4; ++i) {
+			if (i % 5000 === 0) console.log('Primitive values:', i);
+			if (i !== (yield i)) console.log('eh!?', i);
+		}
+		console.log('Primitive values works');
+	}, err => err && console.error(err));
+
+	//================================================================================
+	aa(function *() {
+		yield wait(8000);
+
+		function sleep(msec, val, cb) {
+			setTimeout(cb, msec, null, val);
+		}
+
+		console.log('thunkify start');
+		var delay = thunkify(sleep);
+		console.log('thunkify sleep', yield cb => sleep(50, 'sleep 50-0', cb));
+		console.log('thunkify delay', yield delay(50, 'sleep 50-1'));
+		console.log('thunkify delay', yield delay(50, 'sleep 50-2')
+			((err, val) => err || (console.log('thunkify delay', val), delay(50, 'sleep 50-3')))
+			((err, val) => err || (console.log('thunkify delay', val), delay(50, 'sleep 50-4'))));
+		console.log('thunkify delay', yield delay(50, 'sleep 50-5')
+			.then(val => (console.log('thunkify delay', val), delay(50, 'sleep 50-6')))
+			.then(val => (console.log('thunkify delay', val), delay(50, 'sleep 50-7'))));
+		console.log('thunkify works');
+
+		console.log('promisify start');
+		var delay2 = promisify(sleep);
+		console.log('promisify sleep', yield cb => sleep(50, 'sleep 50-0', cb));
+		console.log('promisify delay', yield delay2(50, 'sleep 50-1'));
+		console.log('promisify delay', yield delay2(50, 'sleep 50-2')
+			((err, val) => err || (console.log('promisify delay', val), delay2(50, 'sleep 50-3')))
+			((err, val) => err || (console.log('promisify delay', val), delay2(50, 'sleep 50-4'))));
+		console.log('promisify delay', yield delay2(50, 'sleep 50-5')
+			.then(val => (console.log('promisify delay', val), delay2(50, 'sleep 50-6')))
+			.then(val => (console.log('promisify delay', val), delay2(50, 'sleep 50-7'))));
+		console.log('promisify works');
+
+		/*
+		function thunkify(fn) {
+			return function () {
+				var ctx = this, args = arguments;
+				return Thunk(function (cb) {
+					args[args.length++] = cb;
+					fn.apply(ctx, args);
+				});
+			}
+		}
+		//*/
+	}, err => err && console.error(err));
+
+	//================================================================================
 	function benchcb(name, bench, cb) {
 		const start = Date.now();
 		try {
@@ -665,8 +854,10 @@
 			return 0;
 		}, cb);
 	}
+
+	//================================================================================
 	aa(function *() {
-		yield wait(8000);
+		yield wait(9000);
 		console.log(yield cb => benchcb('0:Primitives', bench0, cb));
 		console.log(yield cb => benchcb('1:Callback', bench1, cb));
 		console.log(yield cb => benchcb('2:Promise', bench2, cb));
@@ -686,16 +877,6 @@
 				yield cb => benchcb('6:proc.next', bench6, cb));
 		}
 		console.log('Benchmark end');
-	}, err => err && console.error(err));
-
-	aa(function *() {
-		yield wait(7000);
-		console.log('Primitive values start');
-		for (var i = 0; i <= 5e4; ++i) {
-			if (i % 5000 === 0) console.log('Primitive values:', i);
-			if (i !== (yield i)) console.log('eh!?', i);
-		}
-		console.log('Primitive values works');
 	}, err => err && console.error(err));
 
 	})();

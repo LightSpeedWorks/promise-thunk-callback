@@ -3,7 +3,11 @@ module.exports = benchAll;
 function benchAll(Thunk) {
 	'use strict';
 
-	const {aa, wait, Channel, thunkify, promisify, thunkifyAll, promisifyAll} = Thunk;
+	var {aa, wait, Channel, thunkify, promisify, thunkifyAll, promisifyAll} = Thunk;
+
+	//if (!wait) wait = function wait(msec, val, cb) {
+	//	return Thunk(function (cb) { setTimeout(cb, msec, null, val); }, cb);
+	//};
 
 	// DELETE FROM HERE
 	//================================================================================

@@ -1,6 +1,6 @@
-	process.title = __filename.substr(__dirname.length + 1);
-	(function () {
-	'use strict';
+process.title = __filename.substr(__dirname.length + 1);
+(function () {
+'use strict';
 
 	(function (g) {
 	'use strict';
@@ -160,9 +160,8 @@
 	//================================================================================
 	// Thunk(setup: Function | undefined, cbOpts: Function | Options): Thunk | Promise
 	function Thunk(setup, cbOpts, args) {
-		var list = typeof cbOpts === 'function' ? [cbOpts] : [];
-		var notYetSetup = true;
-		var result = undefined, notYetResult = true;
+		var head, tail;
+		head = tail = typeof cbOpts === 'function' ? {cb:cbOpts, chain:undefined} : undefined;
 
 		thunk.constructor = Thunk;
 		thunk.then = then;
@@ -170,12 +169,14 @@
 
 		if (typeof setup === 'function') {
 			if (typeof cbOpts === 'function') {
-				try { notYetSetup = false; setup(thunk, thunk); }
+				try { var f = setup; setup = undefined;
+					f(thunk, thunk); }
 				catch (err) { thunk(err); }
 				return;
 			}
 			else if (cbOpts && cbOpts.immediate)
-				try { notYetSetup = false; setup(thunk, thunk); }
+				try { var f = setup; setup = undefined;
+					f(thunk, thunk); }
 				catch (err) { thunk(err); }
 		}
 
@@ -183,20 +184,21 @@
 
 		function thunk(callback) {
 			if (typeof callback === 'function') {
-				if (notYetSetup &&
-					typeof setup === 'function')
-					try { notYetSetup = false; setup(thunk, thunk); }
+				if (typeof setup === 'function')
+					try { var f = setup; setup = undefined;
+						f(thunk, thunk); }
 					catch (err) { thunk(err); }
 
 				return Thunk(function (thunk) {
-					list.push(function (err, val) {
+					var bomb = {cb:function (err, val) {
 						if (arguments.length === 1)
 							err instanceof Error || (val = err, err = null);
 						else if (arguments.length > 2)
 							val = slice.call(arguments, 1);
 						try { return valcb(callback(err, val), thunk); }
 						catch (err) { return thunk(err); }
-					});
+					}, chain:undefined};
+					tail = tail ? (tail.chain = bomb) : (head = bomb);
 					if (args) nextExec(fire);
 				}, {immediate: true});
 			}
@@ -220,16 +222,16 @@
 				else if (arguments.length > 2)
 					args = [callback, slice.call(arguments, 1)];
 			}
-			return list.length > 0 ? nextExec(fire) : void 0;
+			return head ? nextExec(fire) : undefined;
 		} // thunk
 
 		function fire() {
-			var cb = null;
-			while (cb = list.shift()) {
-				var r = cb.apply(null, args);
-				if (notYetResult) result = r, notYetResult = false;
+			var bomb;
+			while (bomb = head) {
+				bomb.cb.apply(null, args);
+				head = bomb.chain;
+				if (!head) tail = undefined;
 			}
-			return result;
 		} // fire
 	} // Thunk
 
@@ -549,7 +551,7 @@
 
 	})(Function('return this')());
 
-	const benchAll = require('./bench-all');
+	var benchAll = require('./bench-all');
 	benchAll(Thunk);
 
-	})();
+})();

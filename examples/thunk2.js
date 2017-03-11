@@ -4,9 +4,6 @@
 	// Unified Thunk! Thunk with Promise and Callback!
 	// thunk === promise === callback!
 
-	if (typeof module === 'object' && module && module.exports)
-		module.exports = Thunk;
-
 	var hasConsole = typeof console === 'object' && console !== null;
 	var hasConsoleWarn  = hasConsole && typeof console.warn  === 'function';
 	var hasConsoleError = hasConsole && typeof console.error === 'function';
@@ -82,26 +79,22 @@
 		function setProto(obj, proto) { obj.__proto__ = proto; };
 	//*/
 
-	g.Thunk = Thunk;
-
-	setValue(Thunk, 'aa', aa);
-	setValue(Thunk, 'all', all);
-	setValue(Thunk, 'race', race);
-	setValue(Thunk, 'resolve', resolve);
-	setValue(Thunk, 'reject', reject);
-	setValue(Thunk, 'accept', resolve);
-	setValue(Thunk, 'Thunk', Thunk);
-	setValue(Thunk, 'Promise', Thunk);
-	setValue(Thunk, 'Channel', Channel);
-	setValue(Thunk, 'wait', wait);
-	setValue(Thunk, 'isIterable', isIterable);
-	setValue(Thunk, 'isIterator', isIterator);
-	setValue(Thunk, 'isPromise', isPromise);
-	setValue(Thunk, 'makeArrayFromIterator', makeArrayFromIterator);
-	setValue(Thunk, 'promisify', thunkify);
-	setValue(Thunk, 'thunkify', thunkify);
-	setValue(Thunk, 'promisifyAll', thunkifyAll);
-	setValue(Thunk, 'thunkifyAll', thunkifyAll);
+	// extend(proto, statics)
+	function extend(proto, statics) {
+		var ctor = proto.constructor;
+		function super_() { setValue(this, 'constructor', ctor); }
+		if (typeof this === 'function')
+			super_.prototype = this.prototype,
+			ctor.prototype = new super_();
+		for (var p in proto)
+			if (proto.hasOwnProperty(p) &&
+				!ctor.prototype.hasOwnProperty(p))
+				setValue(ctor.prototype, p, proto[p]);
+		for (var p in statics)
+			if (statics.hasOwnProperty(p))
+				setValue(ctor, p, statics[p]);
+		return ctor;
+	}
 
 	// PromiseResolveThen(fn)
 	var PromiseResolveThen = function (N) {
@@ -155,85 +148,74 @@
 
 	//================================================================================
 	// Thunk(setup: Function | undefined, cbOpts: Function | Options): Thunk | Promise
-	function Thunk(setup, cbOpts, args) {
-		var list = typeof cbOpts === 'function' ? [cbOpts] : [];
-		var notYetSetup = true;
-		var result = undefined, notYetResult = true;
 
-		thunk.constructor = Thunk;
-		thunk.then = then;
-		thunk['catch'] = caught;
+	var Thunk = extend({
+		constructor: function Thunk(setup, cbOpts, args) {
+			thunk.setup = setup;
+			thunk.args = args;
+			thunk.head = thunk.tail = typeof cbOpts === 'function' ?
+				{cb:cbOpts, chain:undefined} : undefined;
 
-		if (typeof setup === 'function') {
-			if (typeof cbOpts === 'function') {
-				try { notYetSetup = false; setup(thunk, thunk); }
-				catch (err) { thunk(err); }
-				return;
-			}
-			else if (cbOpts && cbOpts.immediate)
-				try { notYetSetup = false; setup(thunk, thunk); }
-				catch (err) { thunk(err); }
-		}
+			thunk.constructor = Thunk;
+			thunk.then = then;
+			thunk['catch'] = caught;
 
-		return thunk;
-
-		function thunk(callback) {
-			if (typeof callback === 'function') {
-				if (notYetSetup &&
-					typeof setup === 'function')
-					try { notYetSetup = false; setup(thunk, thunk); }
+			if (typeof setup === 'function') {
+				if (typeof cbOpts === 'function') {
+					try { thunk.setup = undefined;
+						setup(thunk, thunk); }
 					catch (err) { thunk(err); }
-
-				return Thunk(function (thunk) {
-					list.push(function (err, val) {
-						if (arguments.length === 1)
-							err instanceof Error || (val = err, err = null);
-						else if (arguments.length > 2)
-							val = slice.call(arguments, 1);
-						try { return valcb(callback(err, val), thunk); }
-						catch (err) { return thunk(err); }
-					});
-					if (args) nextExec(fire);
-				}, {immediate: true});
+					return;
+				}
+				else if (cbOpts && cbOpts.immediate)
+					try { thunk.setup = undefined;
+						setup(thunk, thunk); }
+					catch (err) { thunk(err); }
 			}
 
-			// callback
-			//if (args) {
-			//	var args2 = normalizeArgs(arguments);
-			//	args[0] ?
-			//		args2[0] ?
-			//			console.log('rejected twice:', args2[0], args[0]) :
-			//			console.log('resolved after rejected:', args2[1], args[0]) :
-			//		args2[0] ?
-			//			console.log('rejected after resolved:', args2[0], args[1]) :
-			//			console.log('resolved twice:', args2[1], args[1]);
-			//}
+			return thunk;
 
-			if (!args) {
-				args = arguments;
-				if (arguments.length === 1)
-					callback instanceof Error || (args = [null, callback]);
-				else if (arguments.length > 2)
-					args = [callback, slice.call(arguments, 1)];
-			}
-			return list.length > 0 ? nextExec(fire) : void 0;
-		} // thunk
+			function thunk(callback) {
+				return $$thunk(thunk, callback, arguments);
+			} // thunk
 
-		function fire() {
-			var cb = null;
-			while (cb = list.shift()) {
-				var r = cb.apply(null, args);
-				if (notYetResult) result = r, notYetResult = false;
-			}
-			return result;
-		} // fire
-	} // Thunk
+		}, // Thunk
+		then: then,
+		'catch': caught
+		//toString: toString,
+		//toJSON: toJSON
+	},
+	{ // statics
+		aa: aa,
+		all: all,
+		race: race,
+		resolve: resolve,
+		reject: reject,
+		accept: resolve,
+		Thunk: Thunk,
+		Promise: Thunk,
+		Channel: Channel,
+		wait: wait,
+		isIterable: isIterable,
+		isIterator: isIterator,
+		isPromise: isPromise,
+		makeArrayFromIterator: makeArrayFromIterator,
+		promisify: thunkify,
+		thunkify: thunkify,
+		promisifyAll: thunkifyAll,
+		thunkifyAll: thunkifyAll,
+	});
+
+	g.Thunk = Thunk;
+
+	if (typeof module === 'object' && module && module.exports)
+		module.exports = Thunk;
 
 	// caught(resolved, rejected) : Thunk | Promise
 	function caught(rejected) {
-		var self = this;
+		var thunk = this;
 		return Thunk(function (cb) {
-			self(function (err, val) {
+			thunk(function (err, val) {
 				try { return valcb(err ?
 					rejected ? rejected(err) : err : val, cb);
 				} catch (err) { return cb(err); }
@@ -243,9 +225,9 @@
 
 	// then(resolved, rejected) : Thunk | Promise
 	function then(resolved, rejected) {
-		var self = this;
+		var thunk = this;
 		return Thunk(function (cb) {
-			self(function (err, val) {
+			thunk(function (err, val) {
 				try { return valcb(err ?
 					rejected ? rejected(err) : err :
 					resolved ? resolved(val) : val, cb);
@@ -253,6 +235,59 @@
 			});
 		}, {immediate: true});
 	} // then
+
+	function $$thunk(thunk, callback, args) {
+		if (typeof callback === 'function') {
+			if (typeof thunk.setup === 'function')
+				try { var setup = thunk.setup;
+					thunk.setup = undefined;
+					setup(thunk, thunk); }
+				catch (err) { thunk(err); }
+
+			return Thunk(function (cb) {
+				var bomb = {cb:function (err, val) {
+					if (arguments.length === 1)
+						err instanceof Error || (val = err, err = null);
+					else if (arguments.length > 2)
+						val = slice.call(arguments, 1);
+					try { return valcb(callback(err, val), cb); }
+					catch (err) { return cb(err); }
+				}, chain:undefined};
+				thunk.tail = thunk.tail ? (thunk.tail.chain = bomb) : (thunk.head = bomb);
+				if (thunk.args) nextExec($$fire, thunk);
+			}, {immediate: true});
+		}
+
+		// callback
+		//if (args) {
+		//	var args2 = normalizeArgs(arguments);
+		//	args[0] ?
+		//		args2[0] ?
+		//			console.log('rejected twice:', args2[0], args[0]) :
+		//			console.log('resolved after rejected:', args2[1], args[0]) :
+		//		args2[0] ?
+		//			console.log('rejected after resolved:', args2[0], args[1]) :
+		//			console.log('resolved twice:', args2[1], args[1]);
+		//}
+
+		if (!thunk.args) {
+			thunk.args = args;
+			if (args.length === 1)
+				callback instanceof Error || (thunk.args = [null, callback]);
+			else if (args.length > 2)
+				thunk.args = [callback, slice.call(args, 1)];
+		}
+		return thunk.head ? nextExec($$fire, thunk) : undefined;
+	} // $$thunk
+
+	function $$fire(thunk) {
+		var bomb;
+		while (bomb = thunk.head) {
+			bomb.cb.apply(null, thunk.args);
+			thunk.head = bomb.chain;
+			if (!thunk.head) thunk.tail = undefined;
+		}
+	} // $$fire
 
 	/*
 	function normalizeArgs(args) {

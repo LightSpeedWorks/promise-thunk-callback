@@ -1,6 +1,6 @@
-	process.title = __filename.substr(__dirname.length + 1);
-	(function () {
-	'use strict';
+process.title = __filename.substr(__dirname.length + 1);
+(function () {
+'use strict';
 
 	(function (g) {
 	'use strict';
@@ -11,7 +11,7 @@
 	if (typeof module === 'object' && module && module.exports)
 		module.exports = Thunk;
 
-	var hasConsole = typeof console === 'object' && console !== null;
+	var hasConsole = typeof console === 'object' && console != null;
 	var hasConsoleWarn  = hasConsole && typeof console.warn  === 'function';
 	var hasConsoleError = hasConsole && typeof console.error === 'function';
 
@@ -160,9 +160,11 @@
 	//================================================================================
 	// Thunk(setup: Function | undefined, cbOpts: Function | Options): Thunk | Promise
 	function Thunk(setup, cbOpts, args) {
-		var list = typeof cbOpts === 'function' ? [cbOpts] : [];
-		var notYetSetup = true;
-		var result = undefined, notYetResult = true;
+		// var head, tail;
+		// head = tail = typeof cbOpts === 'function' ? {cb:cbOpts, chain:undefined} : undefined;
+		var pos = 0, len = 0;
+		thunk[0] = null;
+		if (typeof cbOpts === 'function') thunk[len++] = cbOpts;
 
 		thunk.constructor = Thunk;
 		thunk.then = then;
@@ -170,12 +172,14 @@
 
 		if (typeof setup === 'function') {
 			if (typeof cbOpts === 'function') {
-				try { notYetSetup = false; setup(thunk, thunk); }
+				try { var f = setup; setup = undefined;
+					f(thunk, thunk); }
 				catch (err) { thunk(err); }
 				return;
 			}
 			else if (cbOpts && cbOpts.immediate)
-				try { notYetSetup = false; setup(thunk, thunk); }
+				try { var f = setup; setup = undefined;
+					f(thunk, thunk); }
 				catch (err) { thunk(err); }
 		}
 
@@ -183,20 +187,20 @@
 
 		function thunk(callback) {
 			if (typeof callback === 'function') {
-				if (notYetSetup &&
-					typeof setup === 'function')
-					try { notYetSetup = false; setup(thunk, thunk); }
+				if (typeof setup === 'function')
+					try { var f = setup; setup = undefined;
+						f(thunk, thunk); }
 					catch (err) { thunk(err); }
 
-				return Thunk(function (thunk) {
-					list.push(function (err, val) {
+				return Thunk(function (cb) {
+					thunk[len++] = function (err, val) {
 						if (arguments.length === 1)
 							err instanceof Error || (val = err, err = null);
 						else if (arguments.length > 2)
 							val = slice.call(arguments, 1);
-						try { return valcb(callback(err, val), thunk); }
-						catch (err) { return thunk(err); }
-					});
+						try { return valcb(callback(err, val), cb); }
+						catch (err) { return cb(err); }
+					};
 					if (args) nextExec(fire);
 				}, {immediate: true});
 			}
@@ -220,16 +224,17 @@
 				else if (arguments.length > 2)
 					args = [callback, slice.call(arguments, 1)];
 			}
-			return list.length > 0 ? nextExec(fire) : void 0;
+			return pos < len ? nextExec(fire) : undefined;
 		} // thunk
 
 		function fire() {
-			var cb = null;
-			while (cb = list.shift()) {
-				var r = cb.apply(null, args);
-				if (notYetResult) result = r, notYetResult = false;
+			var cb;
+			while (pos < len) {
+				cb = thunk[pos];
+				delete thunk[pos];
+				pos++;
+				cb.apply(null, args);
 			}
-			return result;
 		} // fire
 	} // Thunk
 
@@ -552,4 +557,4 @@
 	const benchAll = require('./bench-all');
 	benchAll(Thunk);
 
-	})();
+})();

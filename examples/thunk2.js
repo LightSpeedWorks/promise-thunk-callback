@@ -117,6 +117,7 @@
 	// nextExec(fn, arg0, arg1)
 	var nextExec = function (tasks, progress) {
 		// tasks {head, tail}
+		// var NN = 100, nn = 0;
 
 		// nextExec(ctx, fn)
 		function nextExec(fn, arg0, arg1) {
@@ -126,6 +127,8 @@
 			if (progress) return;
 			progress = true;
 			nextTickDo(nextTickExec);
+			// ++nn < NN ? nextTickExec() :
+			//	(nn = 0, nextTickDo(nextTickExec));
 		}
 
 		function nextTickExec() {

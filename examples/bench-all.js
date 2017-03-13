@@ -256,7 +256,7 @@ function benchAll(Thunk) {
 		try {
 			bench(function (err, val) {
 				let msec = Date.now() - start;
-				if (msec === 0 || val === 'N/A') msec = 'N/A';
+				if (val === 'N/A') msec = 'N/A';
 				cb(err, name + ':' + msec);
 				//{n: name, v: val, m: Date.now() - start});
 			});
@@ -321,7 +321,7 @@ function benchAll(Thunk) {
 		} catch (err) { cb(err); }
 	}
 	function bench3NT1(cb) {
-		try { var NewThunk = require('new-thunk/thunk1'); }
+		try { var NewThunk = require('./thunk2'); }
 		catch (err) { return cb(null, 'N/A'); }
 		try {
 			var p = NewThunk(function (cb) { cb(null, 0); });
@@ -385,8 +385,8 @@ function benchAll(Thunk) {
 		console.log(yield cb => benchcb('2PL:PromiseLight', bench2PL, cb));
 		console.log(yield cb => benchcb('2PT:PromiseThunk', bench2PT, cb));
 		console.log(yield cb => benchcb('3:ThunkSync', bench3, cb));
-		// console.log(yield cb => benchcb('3NT1:NewThunk1', bench3NT1, cb));
-		console.log(yield cb => benchcb('3T2:Thunk2', bench3NT2, cb));
+		console.log(yield cb => benchcb('3T1:Thunk1', bench3NT1, cb));
+		console.log(yield cb => benchcb('3T2:NewThunk2', bench3NT2, cb));
 		console.log(yield cb => benchcb('4:ThunkThen', bench4, cb));
 		console.log(yield cb => benchcb('5:setImmediate', bench5, cb));
 		console.log(yield cb => benchcb('6:process.nextTick', bench6, cb));
@@ -399,10 +399,12 @@ function benchAll(Thunk) {
 				yield cb => benchcb('2PL:PromLight', bench2PL, cb),
 				yield cb => benchcb('2PT:PromThunk', bench2PT, cb),
 				yield cb => benchcb('3:Thunk', bench3, cb),
-				yield cb => benchcb('3T2:Thunk2', bench3NT2, cb),
+				yield cb => benchcb('3T1:Thunk2', bench3NT1, cb),
+				yield cb => benchcb('3T2:NewThunk2', bench3NT2, cb),
 				yield cb => benchcb('4:ThunkThen', bench4, cb),
 				yield cb => benchcb('5:setImmed', bench5, cb),
 				yield cb => benchcb('6:proc.next', bench6, cb));
+			yield wait(100);
 		}
 		console.log('Benchmark end');
 	}, err => err && console.error(err));

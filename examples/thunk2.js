@@ -578,4 +578,10 @@
 		return object;
 	} // thunkifyAll
 
+	function aa_callback(gtor) {
+		return function () {
+			return aa(gtor.apply(this, arguments));
+		};
+	}
+
 })(Function('return this')());

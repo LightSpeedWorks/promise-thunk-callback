@@ -10,6 +10,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "new-thunk": "0.0.2"
+    "aa": "^0.1.40",
+    "new-thunk": "0.0.2",
+    "promise-light": "^0.1.14",
+    "promise-thunk": "^0.1.17"
   }
 }
